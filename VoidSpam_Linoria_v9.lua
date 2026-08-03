@@ -4573,11 +4573,11 @@ GAim:AddToggle('Aimbot', {
     Default = false,
     Tooltip = 'Aims at the closest player while the key is held',
 })
-GAim:AddKeyPicker('AimKey', {
-    Text     = 'Aimbot Key',
-    Default  = 'MB2',
-    SyncToggleState = false,
-    Mode     = 'Hold',
+GAim:AddDropdown('AimKeyMode', {
+    Text    = 'Aim Key',
+    Values  = { 'Right Mouse', 'Left Mouse', 'Q', 'E', 'F', 'C', 'V', 'X' },
+    Default = 'Right Mouse',
+    Multi   = false,
 })
 GAim:AddDropdown('HitPart', {
     Text    = 'Hit Part',
@@ -5655,6 +5655,17 @@ local function rotateCamToward(cam, target, alpha)
 end
 
 local aimConn = nil
+local function aimKeyDown()
+    local k = SL('AimKeyMode')
+    if k == 'Right Mouse' then
+        return InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+    elseif k == 'Left Mouse' then
+        return InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+    end
+    local kc = Enum.KeyCode[k]
+    return kc and InputService:IsKeyDown(kc) or false
+end
+
 aimConn = RunService.RenderStepped:Connect(function()
     pcall(function()
         local cam = GetCam()
@@ -5663,13 +5674,15 @@ aimConn = RunService.RenderStepped:Connect(function()
         if TG('Aimbot') and TG('ShowAimFov') then
             aimCircle.Visible = true
             aimCircle.Position = view / 2
-            aimCircle.Radius = (view.Y / 2) * math.tan(math.rad(SL('AimFOV') / 2)) / math.tan(math.rad(cam.FieldOfView / 2))
+            local fovRad = math.rad(math.clamp(SL('AimFOV'), 1, 179) / 2)
+            local camFovRad = math.rad(math.clamp(cam.FieldOfView or 70, 1, 179) / 2)
+            aimCircle.Radius = (view.Y / 2) * (math.tan(fovRad) / math.tan(camFovRad))
             aimCircle.Color = COL('AimFovColor', Color3.fromRGB(255, 255, 255))
         else
             aimCircle.Visible = false
         end
 
-        if TG('Aimbot') and Options.AimKey:GetState() then
+        if TG('Aimbot') and aimKeyDown() then
             local target = findAimTarget()
             if target and target.Character then
                 local part = aimHitPart(target.Character)
