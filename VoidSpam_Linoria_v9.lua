@@ -4564,27 +4564,18 @@ GRainbow:AddDropdown('RainbowParts', {
 -- ══════════════════════════════════════════
 --  TAB — AIMBOT
 -- ══════════════════════════════════════════
-local GAim    = Tabs.Aimbot:AddLeftGroupbox('Aimbot')
-local GAimVis = Tabs.Aimbot:AddRightGroupbox('Visuals')
+local GAim = Tabs.Aimbot:AddLeftGroupbox('Aimbot')
 
 local aimUIOK, aimUIErr = pcall(function()
-GAim:AddToggle('Aimbot', {
+local AimbotToggle = GAim:AddToggle('Aimbot', {
     Text    = 'Enable Aimbot',
     Default = false,
-    Tooltip = 'Aims at the closest player while the key is held',
+    Tooltip = 'Press the key (right mouse by default) or flip this to toggle aiming',
 })
-GAim:AddDropdown('AimMode', {
-    Text    = 'Aim Mode',
-    Values  = { 'Hold', 'Toggle' },
-    Default = 'Hold',
-    Multi   = false,
-    Tooltip = 'Hold = aims while the key is held; Toggle = click the key to switch aiming on/off',
-})
-GAim:AddDropdown('AimKeyMode', {
-    Text    = 'Aim Key',
-    Values  = { 'Right Mouse', 'Left Mouse', 'Q', 'E', 'F', 'C', 'V', 'X' },
-    Default = 'Right Mouse',
-    Multi   = false,
+AimbotToggle:AddKeyPicker('AimKey', {
+    Text = 'Aimbot Key',
+    Default = 'MB2',
+    SyncToggleState = true,
 })
 GAim:AddDropdown('HitPart', {
     Text    = 'Hit Part',
@@ -4608,6 +4599,14 @@ GAim:AddSlider('AimFOV', {
     Rounding = 0,
     Suffix   = 'deg',
     Tooltip  = 'Only aims at targets inside this circle around the crosshair',
+})
+GAim:AddToggle('ShowAimFov', {
+    Text    = 'Show FOV Circle',
+    Default = true,
+})
+GAim:AddLabel('FOV Circle Color'):AddColorPicker('AimFovColor', {
+    Default = Color3.fromRGB(255, 255, 255),
+    Title   = 'FOV Circle Color',
 })
 GAim:AddSlider('AimDistance', {
     Text     = 'Max Distance',
@@ -4639,21 +4638,6 @@ GAim:AddSlider('LeadTime', {
     Max      = 0.25,
     Rounding = 3,
     Suffix   = 's',
-})
-GAim:AddKeyPicker('AimKey', {
-    Text     = 'Aimbot Key',
-    Default  = 'MB2',
-    SyncToggleState = false,
-    Mode     = 'Hold',
-})
-
-GAimVis:AddToggle('ShowAimFov', {
-    Text    = 'Show FOV Circle',
-    Default = true,
-})
-GAimVis:AddLabel('FOV Color'):AddColorPicker('AimFovColor', {
-    Default = Color3.fromRGB(255, 255, 255),
-    Title   = 'FOV Circle Color',
 })
 end)
 if not aimUIOK then
@@ -5671,28 +5655,7 @@ local function rotateCamToward(cam, target, alpha)
 end
 
 local aimConn = nil
-local function aimKeyDown()
-    local k = SL('AimKeyMode')
-    if k == 'Right Mouse' then
-        return InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
-    elseif k == 'Left Mouse' then
-        return InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
-    end
-    local kc = Enum.KeyCode[k]
-    return kc and InputService:IsKeyDown(kc) or false
-end
-
-local aimToggled = false
-local aimWasDown = false
-local function aimActive()
-    local held = (Options.AimKey and Options.AimKey:GetState()) or aimKeyDown()
-    if SL('AimMode') == 'Toggle' then
-        if held and not aimWasDown then aimToggled = not aimToggled end
-        aimWasDown = held
-        return aimToggled
-    end
-    return held
-end
+local lastAimDbg = 0
 
 aimConn = RunService.RenderStepped:Connect(function()
     pcall(function()
@@ -5710,8 +5673,12 @@ aimConn = RunService.RenderStepped:Connect(function()
             aimCircle.Visible = false
         end
 
-        if TG('Aimbot') and aimActive() then
+        if TG('Aimbot') then
             local target = findAimTarget()
+            if tick() - lastAimDbg > 5 then
+                lastAimDbg = tick()
+                warn('[VoidSpam] aimbot debug: toggle=ON target=' .. tostring(target and target.Name or 'NONE'))
+            end
             if target and target.Character then
                 local part = aimHitPart(target.Character)
                 if part then
