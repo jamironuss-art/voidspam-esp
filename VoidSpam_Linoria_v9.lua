@@ -4229,6 +4229,7 @@ local Window = Library:CreateWindow({
 -- ─────────────────────────────────────────
 local Tabs = {
     ESP      = Window:AddTab('ESP'),
+    Aimbot   = Window:AddTab('Aimbot'),
     Movement = Window:AddTab('Movement'),
     Settings = Window:AddTab('Settings'),
 }
@@ -4558,6 +4559,87 @@ GRainbow:AddDropdown('RainbowParts', {
     Values  = { 'All', 'Box Only', 'Tracers Only', 'Text Only' },
     Default = 'All',
     Multi   = false,
+})
+
+-- ══════════════════════════════════════════
+--  TAB — AIMBOT
+-- ══════════════════════════════════════════
+local GAim    = Tabs.Aimbot:AddLeftGroupbox('Aimbot')
+local GAimVis = Tabs.Aimbot:AddRightGroupbox('Visuals')
+
+GAim:AddToggle('Aimbot', {
+    Text    = 'Enable Aimbot',
+    Default = false,
+    Tooltip = 'Aims at the closest player while the key is held',
+})
+GAim:AddKeyPicker('AimKey', {
+    Text     = 'Aimbot Key',
+    Default  = 'MB2',
+    SyncToggleState = false,
+    Mode     = 'Hold',
+})
+GAim:AddDropdown('HitPart', {
+    Text    = 'Hit Part',
+    Values  = { 'Head', 'Torso', 'Random' },
+    Default = 'Head',
+    Multi   = false,
+})
+GAim:AddSlider('AimSmoothness', {
+    Text     = 'Smoothness',
+    Default  = 5,
+    Min      = 0,
+    Max      = 20,
+    Rounding = 0,
+    Tooltip  = 'Lower = snappier, higher = smoother',
+})
+GAim:AddSlider('AimFOV', {
+    Text     = 'FOV',
+    Default  = 45,
+    Min      = 5,
+    Max      = 180,
+    Rounding = 0,
+    Suffix   = 'deg',
+    Tooltip  = 'Only aims at targets inside this circle around the crosshair',
+})
+GAim:AddSlider('AimDistance', {
+    Text     = 'Max Distance',
+    Default  = 500,
+    Min      = 50,
+    Max      = 5000,
+    Rounding = 0,
+    Suffix   = 'st',
+})
+GAim:AddToggle('AimTeamCheck', {
+    Text    = 'Team Check',
+    Default = true,
+    Tooltip = 'Skips players on your team',
+})
+GAim:AddToggle('AimVisCheck', {
+    Text    = 'Visibility Check',
+    Default = true,
+    Tooltip = 'Only aims if a raycast to the target is not blocked',
+})
+GAim:AddToggle('LeadTarget', {
+    Text    = 'Velocity Lead',
+    Default = true,
+    Tooltip = 'Aims slightly ahead so shots hit a moving target',
+})
+GAim:AddSlider('LeadTime', {
+    Text     = 'Lead Time',
+    Default  = 0.1,
+    Min      = 0,
+    Max      = 0.25,
+    Rounding = 3,
+    Suffix   = 's',
+})
+
+GAimVis:AddToggle('ShowAimFov', {
+    Text    = 'Show FOV Circle',
+    Default = true,
+})
+GAimVis:AddLabel('FOV Color'):AddColorPicker('AimFovColor', {
+    Default = Color3.fromRGB(255, 255, 255),
+    Title   = 'FOV Circle Color',
 })
 
 -- ══════════════════════════════════════════
@@ -5474,6 +5556,135 @@ espConn = RunService.RenderStepped:Connect(function()
 end)
 
 -- ══════════════════════════════════════════
+--  AIMBOT  (camera only, no character rotation,
+--  no hooks - safe for Rivals anticheat)
+-- ══════════════════════════════════════════
+local aimCircle = Drawing.new('Circle')
+aimCircle.Visible = false
+aimCircle.Filled = false
+aimCircle.Thickness = 1
+aimCircle.Color = Color3.fromRGB(255, 255, 255)
+aimCircle.Transparency = 0.8
+aimCircle.Radius = 100
+
+local function isTargetBlocked(point)
+    local cam = GetCam()
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Blacklist
+    params.FilterDescendantsInstances = { player.Character }
+    local res = workspace:Raycast(cam.CFrame.Position, (point - cam.CFrame.Position).Unit * 1000, params)
+    return res ~= nil
+end
+
+local function aimHitPart(char)
+    local mode = SL('HitPart')
+    if mode == 'Head' then return char:FindFirstChild('Head') end
+    if mode == 'Torso' then return char:FindFirstChild('HumanoidRootPart') end
+    local head = char:FindFirstChild('Head')
+    local root = char:FindFirstChild('HumanoidRootPart')
+    if not root then return head end
+    if not head then return root end
+    return (tick() % 2 < 1) and head or root
+end
+
+local function findAimTarget()
+    local cam = GetCam()
+    local center = cam.ViewportSize / 2
+    local maxScore = SL('AimFOV')
+    local best, bestScore = nil, nil
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player then
+            local char = p.Character
+            if char then
+                local hum = char:FindFirstChildOfClass('Humanoid')
+                if hum and hum.Health > 0 then
+                    local myTeam = player.Team or player.TeamColor
+                    local tTeam = p.Team or p.TeamColor
+                    if not (TG('AimTeamCheck') and myTeam and tTeam and myTeam == tTeam) then
+                        local part = aimHitPart(char)
+                        if part then
+                            local pos, onScreen = cam:WorldToViewportPoint(part.Position)
+                            if onScreen then
+                                local dist = (part.Position - cam.CFrame.Position).Magnitude
+                                if dist <= SL('AimDistance') then
+                                    local score = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+                                    if score <= maxScore and (not bestScore or score < bestScore) then
+                                        local ok = not TG('AimVisCheck')
+                                        if not ok then ok = not isTargetBlocked(part.Position) end
+                                        if ok then
+                                            best, bestScore = p, score
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- yaw+pitch-only camera rotation (keeps the camera upright, never rotates
+-- the character, settles exactly when close so it never overshoots)
+local function rotateCamToward(cam, target, alpha)
+    local pos = cam.CFrame.Position
+    local curLook = cam.CFrame.LookVector
+    local delta = target - pos
+    local dist = delta.Magnitude
+    if dist < 0.001 then return end
+    local desired = delta / dist
+    local angle = math.acos(math.clamp(curLook:Dot(desired), -1, 1))
+    if angle < 0.03 then
+        cam.CFrame = CFrame.lookAt(pos, target)
+        return
+    end
+    local axis = curLook:Cross(desired)
+    if axis.Magnitude < 1e-4 then
+        cam.CFrame = CFrame.lookAt(pos, target)
+        return
+    end
+    local newLook = CFrame.fromAxisAngle(axis.Unit, angle * alpha) * curLook
+    cam.CFrame = CFrame.lookAt(pos, pos + newLook)
+end
+
+local aimConn = nil
+aimConn = RunService.RenderStepped:Connect(function()
+    pcall(function()
+        local cam = GetCam()
+        local view = cam.ViewportSize
+
+        if TG('Aimbot') and TG('ShowAimFov') then
+            aimCircle.Visible = true
+            aimCircle.Position = view / 2
+            aimCircle.Radius = (view.Y / 2) * math.tan(math.rad(SL('AimFOV') / 2)) / math.tan(math.rad(cam.FieldOfView / 2))
+            aimCircle.Color = COL('AimFovColor', Color3.fromRGB(255, 255, 255))
+        else
+            aimCircle.Visible = false
+        end
+
+        if TG('Aimbot') and Options.AimKey:GetState() then
+            local target = findAimTarget()
+            if target and target.Character then
+                local part = aimHitPart(target.Character)
+                if part then
+                    local aimPoint = part.Position
+                    if TG('LeadTarget') then
+                        local vel = part.AssemblyLinearVelocity
+                        local lead = vel * SL('LeadTime')
+                        if lead.Magnitude > 2.5 then lead = lead.Unit * 2.5 end
+                        aimPoint = aimPoint + lead
+                    end
+                    local alpha = (21 - math.clamp(SL('AimSmoothness'), 0, 20)) / 21
+                    rotateCamToward(cam, aimPoint, alpha)
+                end
+            end
+        end
+    end)
+end)
+
+-- ══════════════════════════════════════════
 --  MOVEMENT  (fly / noclip / speed / jump)
 -- ══════════════════════════════════════════
 local collideSaved = {}
@@ -5581,6 +5792,8 @@ end)
 Library:OnUnload(function()
     Library.Unloaded = true
     if espConn then espConn:Disconnect() end
+    if aimConn then aimConn:Disconnect() end
+    aimCircle:Remove()
     if moveConn then moveConn:Disconnect() end
     pcall(applyNoclip, false)
     stopFlyBV()
