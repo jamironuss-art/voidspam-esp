@@ -4573,6 +4573,13 @@ GAim:AddToggle('Aimbot', {
     Default = false,
     Tooltip = 'Aims at the closest player while the key is held',
 })
+GAim:AddDropdown('AimMode', {
+    Text    = 'Aim Mode',
+    Values  = { 'Hold', 'Toggle' },
+    Default = 'Hold',
+    Multi   = false,
+    Tooltip = 'Hold = aims while the key is held; Toggle = click the key to switch aiming on/off',
+})
 GAim:AddDropdown('AimKeyMode', {
     Text    = 'Aim Key',
     Values  = { 'Right Mouse', 'Left Mouse', 'Q', 'E', 'F', 'C', 'V', 'X' },
@@ -4632,6 +4639,12 @@ GAim:AddSlider('LeadTime', {
     Max      = 0.25,
     Rounding = 3,
     Suffix   = 's',
+})
+GAim:AddKeyPicker('AimKey', {
+    Text     = 'Aimbot Key',
+    Default  = 'MB2',
+    SyncToggleState = false,
+    Mode     = 'Hold',
 })
 
 GAimVis:AddToggle('ShowAimFov', {
@@ -5594,8 +5607,11 @@ end
 
 local function findAimTarget()
     local cam = GetCam()
-    local center = cam.ViewportSize / 2
-    local maxScore = SL('AimFOV')
+    local view = cam.ViewportSize
+    local center = view / 2
+    local fovRad = math.rad(math.clamp(SL('AimFOV'), 1, 179) / 2)
+    local camFovRad = math.rad(math.clamp(cam.FieldOfView or 70, 1, 179) / 2)
+    local maxScore = (view.Y / 2) * (math.tan(fovRad) / math.tan(camFovRad))
     local best, bestScore = nil, nil
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= player then
@@ -5666,6 +5682,18 @@ local function aimKeyDown()
     return kc and InputService:IsKeyDown(kc) or false
 end
 
+local aimToggled = false
+local aimWasDown = false
+local function aimActive()
+    local held = (Options.AimKey and Options.AimKey:GetState()) or aimKeyDown()
+    if SL('AimMode') == 'Toggle' then
+        if held and not aimWasDown then aimToggled = not aimToggled end
+        aimWasDown = held
+        return aimToggled
+    end
+    return held
+end
+
 aimConn = RunService.RenderStepped:Connect(function()
     pcall(function()
         local cam = GetCam()
@@ -5682,7 +5710,7 @@ aimConn = RunService.RenderStepped:Connect(function()
             aimCircle.Visible = false
         end
 
-        if TG('Aimbot') and aimKeyDown() then
+        if TG('Aimbot') and aimActive() then
             local target = findAimTarget()
             if target and target.Character then
                 local part = aimHitPart(target.Character)
