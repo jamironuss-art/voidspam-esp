@@ -4233,6 +4233,7 @@ local Window = Library:CreateWindow({
 local Tabs = {
     ESP      = Window:AddTab('ESP'),
     Aimbot   = Window:AddTab('Aimbot'),
+    Weapon   = Window:AddTab('Weapon'),
     Visuals  = Window:AddTab('Visuals'),
     Movement = Window:AddTab('Movement'),
     Settings = Window:AddTab('Settings'),
@@ -4436,6 +4437,51 @@ GSilent:AddSlider('PredictionAmount', {
     Suffix   = 's',
     Tooltip  = 'Seconds ahead to predict â€” tune per-game',
 })
+-- ══════════════════════════════════════════
+--  TAB — WEAPON  (gun mods)
+-- ══════════════════════════════════════════
+local setupWeaponHook = nil
+local hookStatus = nil
+
+local GWeapon = Tabs.Weapon:AddLeftGroupbox('Gun Mods')
+local GInfo   = Tabs.Weapon:AddRightGroupbox('Status')
+
+GWeapon:AddToggle('NoRecoil', {
+    Text    = 'No Recoil',
+    Default = false,
+    Tooltip = 'Zeroes ShootRecoil while the Input hook is active',
+})
+
+GWeapon:AddToggle('NoSpread', {
+    Text    = 'No Spread',
+    Default = false,
+    Tooltip = 'Zeroes ShootSpread — bullets go perfectly straight',
+})
+
+GWeapon:AddToggle('FireSpeed', {
+    Text    = 'Fire Speed Changer',
+    Default = false,
+    Tooltip = 'Scales the weapon cooldown so it fires faster',
+})
+
+GWeapon:AddSlider('FireSpeedMult', {
+    Text     = 'Fire Speed',
+    Default  = 2,
+    Min      = 1,
+    Max      = 10,
+    Rounding = 1,
+    Suffix   = 'x',
+    Tooltip  = 'Multiplier on the fire rate (higher = faster)',
+})
+
+hookStatus = GInfo:AddLabel('Hook status: not installed yet')
+GInfo:AddButton({
+    Text = 'Retry weapon hook',
+    Func = function()
+        local ok = setupWeaponHook()
+        if hookStatus then hookStatus:SetText('Hook status: ' .. (ok and 'ACTIVE' or 'FAILED')) end
+    end,
+})
 
 -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 --  TAB â€” VISUALS
@@ -4558,6 +4604,117 @@ end
 
 local hue      = 0
 local hueColor = Color3.fromRGB(255, 255, 255)
+
+-- ══════════════════════════════════════════
+--  WEAPON HOOK  (Rivals ClientItem.Input)
+--  Hooks the local client item module so we can zero
+--  recoil / spread and scale the fire cooldown each shot.
+-- ══════════════════════════════════════════
+local gunItemModule = nil
+local gunHook = nil
+local gunFallback = false
+local gunFallbackConn = nil
+
+local function findItemModule()
+    local ok, mod = pcall(function()
+        local ps = player:FindFirstChild('PlayerScripts')
+        local m  = ps and ps:FindFirstChild('Modules')
+        m = m and m:FindFirstChild('ClientReplicatedClasses')
+        m = m and m:FindFirstChild('ClientFighter')
+        m = m and m:FindFirstChild('ClientItem')
+        return require(m)
+    end)
+    if ok and mod then return mod end
+    return nil
+end
+
+-- GC-sweep fallback: sets recoil/spread/cooldown on any table that
+-- carries the Rivals weapon-attribute keys (works without hookfunction)
+local function applyGunSweep()
+    if not getgc then return end
+    for _, val in pairs(getgc(true)) do
+        if type(val) == 'table' then
+            if TG('NoRecoil') then
+                if rawget(val, 'ShootRecoil') ~= nil then val.ShootRecoil = 0 end
+                if rawget(val, 'Recoil') ~= nil then val.Recoil = 0 end
+            end
+            if TG('NoSpread') then
+                if rawget(val, 'ShootSpread') ~= nil then val.ShootSpread = 0 end
+                if rawget(val, 'Spread') ~= nil then val.Spread = 0 end
+            end
+            if TG('FireSpeed') then
+                local mult = math.max(SL('FireSpeedMult'), 0.1)
+                if rawget(val, 'ShootCooldown') ~= nil then val.ShootCooldown = val.ShootCooldown / mult end
+                if rawget(val, 'FireRate') ~= nil then val.FireRate = val.FireRate * mult end
+            end
+        end
+    end
+end
+
+setupWeaponHook = function()
+    local ok = false
+    pcall(function()
+        local mod = findItemModule()
+        if not mod then return end
+        local input = mod.Input
+        if type(input) ~= 'function' then return end
+        local old = input
+        gunHook = hookfunction(input, function(...)
+            local args = { ... }
+            local state = args[1]
+            if type(state) == 'table' then
+                local info = state.Info
+                if type(info) == 'table' then
+                    if TG('NoRecoil') then
+                        if info.ShootRecoil ~= nil then info.ShootRecoil = 0 end
+                        if info.Recoil ~= nil then info.Recoil = 0 end
+                    end
+                    if TG('NoSpread') then
+                        if info.ShootSpread ~= nil then info.ShootSpread = 0 end
+                        if info.Spread ~= nil then info.Spread = 0 end
+                    end
+                    if TG('FireSpeed') then
+                        local mult = math.max(SL('FireSpeedMult'), 0.1)
+                        if info.ShootCooldown ~= nil then info.ShootCooldown = info.ShootCooldown / mult end
+                        if info.FireRate ~= nil then info.FireRate = info.FireRate * mult end
+                    end
+                end
+            end
+            return old(...)
+        end)
+        gunItemModule = mod
+        ok = true
+    end)
+    if not ok then
+        gunHook = nil
+        if getgc then
+            gunFallback = true
+            if not gunFallbackConn then
+                gunFallbackConn = RunService.Heartbeat:Connect(function()
+                    if not (TG('NoRecoil') or TG('NoSpread') or TG('FireSpeed')) then return end
+                    pcall(applyGunSweep)
+                end)
+            end
+            ok = true
+        end
+    end
+    if hookStatus then
+        pcall(function() hookStatus:SetText('Hook status: ' .. (ok and 'ACTIVE' or 'FAILED')) end)
+    end
+    return ok
+end
+
+-- auto-install once the modules exist, and re-try on respawn
+task.spawn(function()
+    while not setupWeaponHook() do task.wait(2) end
+end)
+player.CharacterAdded:Connect(function()
+    task.wait(3)
+    setupWeaponHook()
+end)player.CharacterAdded:Connect(function()
+    task.wait(3)
+    setupWeaponHook()
+end)
 
 -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 --  AIMBOT CORE
@@ -4756,10 +4913,12 @@ local aimConn = RunService.RenderStepped:Connect(function(dt)
             )
             silentPart = part   -- nil if no target found â€” hook returns nil â†’ no redirect
         else
-            silentPart = nil    -- miss this frame
+            silentPart = nil
+    if gunFallbackConn then gunFallbackConn:Disconnect() gunFallbackConn = nil end    -- miss this frame
         end
     else
         silentPart = nil
+    if gunFallbackConn then gunFallbackConn:Disconnect() gunFallbackConn = nil end
     end
 end)
 
@@ -5274,6 +5433,7 @@ Library:OnUnload(function()
     fovCircle.Visible = false
     fovCircle:Remove()
     silentPart = nil
+    if gunFallbackConn then gunFallbackConn:Disconnect() gunFallbackConn = nil end
     local uc   = player.Character
     local uhrp = uc and uc:FindFirstChild('HumanoidRootPart')
     if uhrp and uhrp.Anchored then uhrp.Anchored = false end
