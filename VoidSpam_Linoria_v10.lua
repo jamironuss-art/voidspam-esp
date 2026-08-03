@@ -5135,20 +5135,9 @@ local function UpdateESP(p)
 end
 
 Players.PlayerAdded:Connect(function(p)
-    task.spawn(function()
-        CreateESP(p)
-        p.CharacterAdded:Connect(function() task.wait(0.1) CreateESP(p) end)
-    end)
+    p.CharacterAdded:Connect(function() task.wait(0.1); CreateESP(p) end)
 end)
 Players.PlayerRemoving:Connect(RemoveESP)
-for _, p in ipairs(Players:GetPlayers()) do
-    if p ~= player then
-        task.spawn(function()
-            CreateESP(p)
-            p.CharacterAdded:Connect(function() task.wait(0.1) CreateESP(p) end)
-        end)
-    end
-end
 
 local espConn  = nil
 local lastESP  = 0
@@ -5162,8 +5151,12 @@ espConn = RunService.RenderStepped:Connect(function()
         local now = tick()
         if now - lastESP < 1/144 then return end
         lastESP = now
+        -- create at most ONE esp per frame so the game never freezes on join
         for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= player and not ESP[plr] then CreateESP(plr) end
+            if plr ~= player and not ESP[plr] then
+                CreateESP(plr)
+                break
+            end
         end
         for p in pairs(ESP) do
             pcall(UpdateESP, p)
