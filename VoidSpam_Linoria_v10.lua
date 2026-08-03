@@ -5141,14 +5141,15 @@ local function UpdateESP(p)
             local fBLv,fBL = sp(corners.FB) local fBRv,fBR = sp(corners.FBR)
             local bTLv,bTL = sp(corners.BF) local bTRv,bTR = sp(corners.BR)
             local bBLv,bBL = sp(corners.BB) local bBRv,bBR = sp(corners.BBR)
-            if not(fTLv and fTRv and fBLv and fBRv and bTLv and bTRv and bBLv and bBRv) then goto nobox end
-            local B = esp.Box
-            B[1].From,B[1].To,B[1].Visible=fTL,fTR,true B[2].From,B[2].To,B[2].Visible=fTR,fBR,true
-            B[3].From,B[3].To,B[3].Visible=fBR,fBL,true B[4].From,B[4].To,B[4].Visible=fBL,fTL,true
-            B[5].From,B[5].To,B[5].Visible=bTL,bTR,true B[6].From,B[6].To,B[6].Visible=bTR,bBR,true
-            B[7].From,B[7].To,B[7].Visible=bBR,bBL,true B[8].From,B[8].To,B[8].Visible=bBL,bTL,true
-            B[9].From,B[9].To,B[9].Visible=fTL,bTL,true B[10].From,B[10].To,B[10].Visible=fTR,bTR,true
-            B[11].From,B[11].To,B[11].Visible=fBL,bBL,true B[12].From,B[12].To,B[12].Visible=fBR,bBR,true
+            if (fTLv and fTRv and fBLv and fBRv and bTLv and bTRv and bBLv and bBRv) then
+                local B = esp.Box
+                B[1].From,B[1].To,B[1].Visible=fTL,fTR,true B[2].From,B[2].To,B[2].Visible=fTR,fBR,true
+                B[3].From,B[3].To,B[3].Visible=fBR,fBL,true B[4].From,B[4].To,B[4].Visible=fBL,fTL,true
+                B[5].From,B[5].To,B[5].Visible=bTL,bTR,true B[6].From,B[6].To,B[6].Visible=bTR,bBR,true
+                B[7].From,B[7].To,B[7].Visible=bBR,bBL,true B[8].From,B[8].To,B[8].Visible=bBL,bTL,true
+                B[9].From,B[9].To,B[9].Visible=fTL,bTL,true B[10].From,B[10].To,B[10].Visible=fTR,bTR,true
+                B[11].From,B[11].To,B[11].Visible=fBL,bBL,true B[12].From,B[12].To,B[12].Visible=fBR,bBR,true
+            end
         elseif style == 'Corner' then
             local cs = boxW * 0.2
             local B = esp.Box
@@ -5167,7 +5168,6 @@ local function UpdateESP(p)
             B[3].From,B[3].To,B[3].Visible = boxPos, boxPos+Vector2.new(boxSize.X,0), true
             B[4].From,B[4].To,B[4].Visible = boxPos+Vector2.new(0,boxSize.Y), boxPos+Vector2.new(boxSize.X,boxSize.Y), true
         end
-        ::nobox::
         for i=1,12 do
             if esp.Box[i].Visible then
                 esp.Box[i].Color = color
