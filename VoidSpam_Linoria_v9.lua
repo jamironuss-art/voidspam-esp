@@ -4570,12 +4570,20 @@ local aimUIOK, aimUIErr = pcall(function()
 local AimbotToggle = GAim:AddToggle('Aimbot', {
     Text    = 'Enable Aimbot',
     Default = false,
-    Tooltip = 'Press the key (right mouse by default) or flip this to toggle aiming',
+    Tooltip = 'Master switch for the aimbot',
 })
 AimbotToggle:AddKeyPicker('AimKey', {
     Text = 'Aimbot Key',
     Default = 'MB2',
-    SyncToggleState = true,
+    SyncToggleState = false,
+    Mode = 'Hold',
+})
+GAim:AddDropdown('AimMode', {
+    Text    = 'Aim Mode',
+    Values  = { 'Hold', 'Toggle' },
+    Default = 'Hold',
+    Multi   = false,
+    Tooltip = 'Hold = aims while the key is held; Toggle = press the key once to keep aiming',
 })
 GAim:AddDropdown('HitPart', {
     Text    = 'Hit Part',
@@ -4600,14 +4608,6 @@ GAim:AddSlider('AimFOV', {
     Suffix   = 'deg',
     Tooltip  = 'Only aims at targets inside this circle around the crosshair',
 })
-GAim:AddToggle('ShowAimFov', {
-    Text    = 'Show FOV Circle',
-    Default = true,
-})
-GAim:AddLabel('FOV Circle Color'):AddColorPicker('AimFovColor', {
-    Default = Color3.fromRGB(255, 255, 255),
-    Title   = 'FOV Circle Color',
-})
 GAim:AddSlider('AimDistance', {
     Text     = 'Max Distance',
     Default  = 500,
@@ -4626,18 +4626,13 @@ GAim:AddToggle('AimVisCheck', {
     Default = true,
     Tooltip = 'Only aims if a raycast to the target is not blocked',
 })
-GAim:AddToggle('LeadTarget', {
-    Text    = 'Velocity Lead',
+GAim:AddToggle('ShowAimFov', {
+    Text    = 'Show FOV Circle',
     Default = true,
-    Tooltip = 'Aims slightly ahead so shots hit a moving target',
 })
-GAim:AddSlider('LeadTime', {
-    Text     = 'Lead Time',
-    Default  = 0.1,
-    Min      = 0,
-    Max      = 0.25,
-    Rounding = 3,
-    Suffix   = 's',
+GAim:AddLabel('FOV Circle Color'):AddColorPicker('AimFovColor', {
+    Default = Color3.fromRGB(255, 255, 255),
+    Title   = 'FOV Circle Color',
 })
 end)
 if not aimUIOK then
@@ -5654,10 +5649,25 @@ local function rotateCamToward(cam, target, alpha)
     cam.CFrame = CFrame.lookAt(pos, pos + newLook)
 end
 
-local aimConn = nil
+local aimToggledOn = false
+local aimPrevKey = false
 local lastAimDbg = 0
+local function aimKeyState()
+    return (Options.AimKey and Options.AimKey:GetState()) or false
+end
+local function aimShouldAim()
+    local key = aimKeyState()
+    if SL('AimMode') == 'Toggle' then
+        if key and not aimPrevKey then aimToggledOn = not aimToggledOn end
+        aimPrevKey = key
+        return aimToggledOn
+    end
+    return key
+end
 
-aimConn = RunService.RenderStepped:Connect(function()
+-- BindToRenderStep with a priority above the camera (Camera = 200) so our
+-- rotation is applied AFTER the game's camera system every frame
+RunService:BindToRenderStep('VoidSpamAim', 250, function()
     pcall(function()
         local cam = GetCam()
         local view = cam.ViewportSize
@@ -5673,22 +5683,20 @@ aimConn = RunService.RenderStepped:Connect(function()
             aimCircle.Visible = false
         end
 
-        if TG('Aimbot') then
+        if TG('Aimbot') and aimShouldAim() then
             local target = findAimTarget()
             if tick() - lastAimDbg > 5 then
                 lastAimDbg = tick()
-                warn('[VoidSpam] aimbot debug: toggle=ON target=' .. tostring(target and target.Name or 'NONE'))
+                warn('[VoidSpam] aimbot debug: key=' .. tostring(aimKeyState()) .. ' target=' .. tostring(target and target.Name or 'NONE'))
             end
             if target and target.Character then
                 local part = aimHitPart(target.Character)
                 if part then
                     local aimPoint = part.Position
-                    if TG('LeadTarget') then
-                        local vel = part.AssemblyLinearVelocity
-                        local lead = vel * SL('LeadTime')
-                        if lead.Magnitude > 2.5 then lead = lead.Unit * 2.5 end
-                        aimPoint = aimPoint + lead
-                    end
+                    local vel = part.AssemblyLinearVelocity
+                    local lead = vel * 0.1
+                    if lead.Magnitude > 2.5 then lead = lead.Unit * 2.5 end
+                    aimPoint = aimPoint + lead
                     local alpha = (21 - math.clamp(SL('AimSmoothness'), 0, 20)) / 21
                     rotateCamToward(cam, aimPoint, alpha)
                 end
@@ -5805,7 +5813,7 @@ end)
 Library:OnUnload(function()
     Library.Unloaded = true
     if espConn then espConn:Disconnect() end
-    if aimConn then aimConn:Disconnect() end
+    RunService:UnbindFromRenderStep('VoidSpamAim')
     aimCircle:Remove()
     if moveConn then moveConn:Disconnect() end
     pcall(applyNoclip, false)
