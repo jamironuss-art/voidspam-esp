@@ -4711,10 +4711,8 @@ end)
 player.CharacterAdded:Connect(function()
     task.wait(3)
     setupWeaponHook()
-end)player.CharacterAdded:Connect(function()
-    task.wait(3)
-    setupWeaponHook()
 end)
+
 
 -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 --  AIMBOT CORE
