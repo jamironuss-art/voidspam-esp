@@ -4567,6 +4567,7 @@ GRainbow:AddDropdown('RainbowParts', {
 local GAim    = Tabs.Aimbot:AddLeftGroupbox('Aimbot')
 local GAimVis = Tabs.Aimbot:AddRightGroupbox('Visuals')
 
+local aimUIOK, aimUIErr = pcall(function()
 GAim:AddToggle('Aimbot', {
     Text    = 'Enable Aimbot',
     Default = false,
@@ -4641,6 +4642,10 @@ GAimVis:AddLabel('FOV Color'):AddColorPicker('AimFovColor', {
     Default = Color3.fromRGB(255, 255, 255),
     Title   = 'FOV Circle Color',
 })
+end)
+if not aimUIOK then
+    warn('[VoidSpam] AIMBOT UI ERROR: ' .. tostring(aimUIErr))
+end
 
 -- ══════════════════════════════════════════
 --  TAB — MOVEMENT
