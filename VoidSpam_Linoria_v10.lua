@@ -4293,150 +4293,97 @@ GRainbow:AddDropdown('RainbowParts', { Text = 'Rainbow Parts', Values = {'All','
 -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 --  TAB â€” AIMBOT
 -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-local GAimbot = Tabs.Aimbot:AddLeftGroupbox('Aimbot')
-local GSilent = Tabs.Aimbot:AddRightGroupbox('Silent Aim')
+local AimbotGroup  = Tabs.Aimbot:AddLeftGroupbox('Aim Assist')
+local TriggerGroup = Tabs.Aimbot:AddRightGroupbox('Triggerbot')
 
--- â”€â”€ Aimbot (Left) â”€â”€
-GAimbot:AddToggle('AimbotEnabled', {
+-- Aim Assist (Left)
+AimbotGroup:AddToggle('AimbotEnabled', {
     Text    = 'Enable Aimbot',
     Default = false,
-    Tooltip = 'Smoothly locks camera onto nearest target within FOV',
+    Tooltip = 'Smoothly moves your mouse toward the nearest enemy inside the FOV',
 })
 
-GAimbot:AddLabel('Aim Key')
-    :AddKeyPicker('AimKey', {
-        Default         = 'MB2',
-        NoUI            = false,
-        Text            = 'Hold to aim',
-        Mode            = 'Hold',
-        SyncToggleState = false,
-    })
-
-GAimbot:AddDropdown('AimHitpart', {
-    Text    = 'Hitpart',
-    Values  = { 'Head', 'UpperTorso', 'LowerTorso', 'HumanoidRootPart' },
-    Default = 'Head',
-    Multi   = false,
-    Tooltip = 'Which body part to aim at (Head recommended)',
-})
-
-GAimbot:AddSlider('AimSmoothness', {
-    Text     = 'Smoothness',
-    Default  = 5,
+AimbotGroup:AddSlider('AimbotFOV', {
+    Text     = 'Aimbot FOV',
+    Default  = 90,
     Min      = 1,
-    Max      = 30,
-    Rounding = 1,
-    Suffix   = 'x',
-    Tooltip  = 'Higher = slower / more human-like. 1 = instant snap',
-})
-
-GAimbot:AddSlider('AimFOV', {
-    Text     = 'FOV Radius',
-    Default  = 150,
-    Min      = 10,
-    Max      = 600,
+    Max      = 180,
     Rounding = 0,
-    Suffix   = 'px',
-    Tooltip  = 'Max screen-pixel radius to lock onto targets',
+    Suffix   = 'deg',
+    Tooltip  = 'Max on-screen angle (in degrees) used to pick a target',
 })
 
-GAimbot:AddToggle('AimFOVCircle', {
-    Text    = 'Draw FOV Circle',
-    Default = true,
-    Tooltip = 'Shows a circle on screen representing your aim FOV',
+AimbotGroup:AddSlider('AimbotSmooth', {
+    Text     = 'Smoothness',
+    Default  = 10,
+    Min      = 1,
+    Max      = 50,
+    Rounding = 0,
+    Tooltip  = 'Max pixels moved per frame. 1 = slow, 50 = instant snap',
 })
 
-GAimbot:AddLabel('FOV Circle Color')
-    :AddColorPicker('AimCircleColor', {
-        Default = Color3.fromRGB(255, 255, 255),
-        Title   = 'FOV Circle Color',
+AimbotGroup:AddDropdown('AimbotPriority', {
+    Text    = 'Aimbot Priority',
+    Values  = { 'Head', 'Body', 'Nearest' },
+    Default = 'Nearest',
+    Multi   = false,
+    Tooltip = 'Which part to aim at: Head, Body, or whatever is closest to the crosshair',
+})
+
+AimbotGroup:AddLabel('Aimbot Keybind')
+    :AddKeyPicker('AimbotKey', {
+        Default = 'MB2',
+        NoUI    = false,
+        Text    = 'Hold to aim',
+        Mode    = 'Hold',
     })
 
-GAimbot:AddSlider('AimCircleThickness', {
-    Text     = 'Circle Thickness',
-    Default  = 1,
-    Min      = 1,
-    Max      = 3,
-    Rounding = 1,
-})
-
-GAimbot:AddToggle('AimVisCheck', {
-    Text    = 'Visible Check',
+AimbotGroup:AddToggle('SilentAim', {
+    Text    = 'Silent Aim',
     Default = false,
-    Tooltip = 'Only aim at targets that are not behind a wall (raycasts)',
+    Tooltip = 'Redirects Mouse.Hit to the target while the aim key is held',
 })
 
-GAimbot:AddToggle('AimTeamCheck', {
-    Text    = 'Team Check',
-    Default = false,
-    Tooltip = 'Skip teammates when selecting aim target',
-})
-
--- â”€â”€ Silent Aim (Right) â”€â”€
-GSilent:AddToggle('SilentAimEnabled', {
-    Text    = 'Enable Silent Aim',
-    Default = false,
-    Tooltip = 'Redirects Mouse.Hit to the nearest target â€” invisible to others',
-})
-
-GSilent:AddDropdown('SilentHitpart', {
-    Text    = 'Hitpart',
-    Values  = { 'Head', 'UpperTorso', 'LowerTorso', 'HumanoidRootPart' },
+AimbotGroup:AddDropdown('SilentAimHitbox', {
+    Text    = 'Silent Aim Hitbox',
+    Values  = { 'Head', 'Body' },
     Default = 'Head',
     Multi   = false,
     Tooltip = 'Which part silent aim redirects bullets toward',
 })
 
-GSilent:AddSlider('SilentFOV', {
-    Text     = 'Silent FOV',
-    Default  = 200,
-    Min      = 10,
-    Max      = 600,
-    Rounding = 0,
-    Suffix   = 'px',
-    Tooltip  = 'Max screen radius to find a silent aim target',
+-- Triggerbot (Right)
+TriggerGroup:AddToggle('TriggerbotEnabled', {
+    Text    = 'Enable Triggerbot',
+    Default = false,
+    Tooltip = 'Automatically fires when your crosshair is over an enemy',
 })
 
-GSilent:AddSlider('HitChance', {
-    Text     = 'Hit Chance',
+TriggerGroup:AddSlider('TriggerbotDelay', {
+    Text     = 'Trigger Delay',
     Default  = 100,
-    Min      = 1,
-    Max      = 100,
-    Rounding = 0,
-    Suffix   = '%',
-    Tooltip  = '100% = every shot redirected. Lower values = more subtle',
-})
-
-GSilent:AddToggle('SilentVisCheck', {
-    Text    = 'Visible Check',
-    Default = false,
-    Tooltip = 'Only silent aim at un-occluded targets',
-})
-
-GSilent:AddToggle('SilentTeamCheck', {
-    Text    = 'Team Check',
-    Default = false,
-    Tooltip = 'Skip teammates for silent aim',
-})
-
-GSilent:AddDivider()
-GSilent:AddLabel('Prediction')
-
-GSilent:AddToggle('SilentPrediction', {
-    Text    = 'Bullet Prediction',
-    Default = false,
-    Tooltip = 'Offsets aim point by target velocity to lead moving players',
-})
-
-GSilent:AddSlider('PredictionAmount', {
-    Text     = 'Prediction Offset',
-    Default  = 0.1,
     Min      = 0,
-    Max      = 1,
-    Rounding = 2,
-    Suffix   = 's',
-    Tooltip  = 'Seconds ahead to predict â€” tune per-game',
+    Max      = 500,
+    Rounding = 0,
+    Suffix   = 'ms',
+    Tooltip  = 'Reaction delay between crosshair contact and firing',
 })
+
+TriggerGroup:AddDropdown('TriggerbotHitbox', {
+    Text    = 'Triggerbot Hitbox',
+    Values  = { 'Head', 'Body' },
+    Default = 'Head',
+    Multi   = false,
+    Tooltip  = 'Which part must be under the crosshair to trigger',
+})
+
+TriggerGroup:AddLabel('Triggerbot Keybind')
+    :AddKeyPicker('TriggerbotKey', {
+        Default = 'Q',
+        NoUI    = false,
+        Text    = 'Hold to trigger',
+        Mode    = 'Hold',
+    })
 -- ══════════════════════════════════════════
 --  TAB — WEAPON  (gun mods)
 -- ══════════════════════════════════════════
@@ -4736,112 +4683,93 @@ local function resolveHitpart(char, name)
     return char:FindFirstChild("HumanoidRootPart")
 end
 
--- Raycast visible check: returns true if nothing blocks origin â†’ target
-local function isVisible(origin, targetPos, ignoreChars)
-    local dir    = targetPos - origin
-    local params = RaycastParams.new()
-    params.FilterType                = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = ignoreChars
-    local result = workspace:Raycast(origin, dir, params)
-    return result == nil
-end
-
 -- Whether two players are on the same team
 local function sameTeam(a, b)
     return a.Team ~= nil and b.Team ~= nil and a.Team == b.Team
 end
 
--- Find the closest player within screenRadius pixels of screen centre.
--- Returns (player, BasePart) or (nil, nil).
-local function findClosestTarget(screenRadius, hitpartName, doVisCheck, doTeamCheck)
-    local cam = workspace.CurrentCamera
-    if not cam then return nil, nil end
+-- Convert an FOV angle (degrees) into on-screen pixels
+local function fovToPixels(deg)
+    return (deg or 90) * 6
+end
 
-    local centre   = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
-    local bestPlr  = nil
-    local bestPart = nil
-    local bestDist = screenRadius
-
-    -- Build ignore list once (camera pos + local char)
-    local ignoreList = { workspace.CurrentCamera }
-    local myChar = player.Character
-    if myChar then
-        for _, d in ipairs(myChar:GetDescendants()) do
-            table.insert(ignoreList, d)
-        end
-        table.insert(ignoreList, myChar)
+-- Pick the part to aim at based on priority (Head / Body / Nearest)
+local function priorityPart(char, priority, cam)
+    if priority == 'Head' then return resolveHitpart(char, 'Head') end
+    if priority == 'Body' then return resolveHitpart(char, 'UpperTorso') end
+    local centre = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+    local function screenDist(p)
+        if not p then return math.huge end
+        local v, on = cam:WorldToViewportPoint(p.Position)
+        if not on or v.Z <= 0 then return math.huge end
+        return (Vector2.new(v.X, v.Y) - centre).Magnitude
     end
+    local head = resolveHitpart(char, 'Head')
+    local body = resolveHitpart(char, 'UpperTorso')
+    return screenDist(head) <= screenDist(body) and head or body
+end
+
+-- Find the nearest enemy within fovPx pixels of the crosshair.
+-- Returns (player, part, screenDistance) or (nil, nil, fovPx).
+local function GetAimTarget(fovPx, priority)
+    local cam = workspace.CurrentCamera
+    if not cam then return nil, nil, fovPx end
+
+    local centre = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+    local best, bestPart, bestDist = nil, nil, fovPx
 
     for _, p in ipairs(Players:GetPlayers()) do
         if p == player then continue end
-        if doTeamCheck and sameTeam(player, p) then continue end
+        if sameTeam(player, p) then continue end
 
         local char = p.Character
-        local hum  = char and char:FindFirstChildOfClass("Humanoid")
+        local hum  = char and char:FindFirstChildOfClass('Humanoid')
         if not (char and hum and hum.Health > 0) then continue end
 
-        local part = resolveHitpart(char, hitpartName)
+        local part = priorityPart(char, priority, cam)
         if not part then continue end
 
-        local sp, onScreen = cam:WorldToViewportPoint(part.Position)
-        if not onScreen or sp.Z <= 0 then continue end
+        local v, on = cam:WorldToViewportPoint(part.Position)
+        if not on or v.Z <= 0 then continue end
 
-        local d = (Vector2.new(sp.X, sp.Y) - centre).Magnitude
-        if d >= bestDist then continue end
-
-        if doVisCheck then
-            -- Add this player's character to ignore
-            local ign = { table.unpack(ignoreList) }
-            for _, d2 in ipairs(char:GetDescendants()) do table.insert(ign, d2) end
-            table.insert(ign, char)
-            if not isVisible(cam.CFrame.Position, part.Position, ign) then continue end
+        local d = (Vector2.new(v.X, v.Y) - centre).Magnitude
+        if d < bestDist then
+            bestDist = d
+            best     = p
+            bestPart = part
         end
-
-        bestDist = d
-        bestPlr  = p
-        bestPart = part
     end
 
-    return bestPlr, bestPart
+    return best, bestPart, bestDist
 end
 
--- â”€â”€ FOV Circle Drawing â”€â”€
-local fovCircle = Drawing.new("Circle")
-fovCircle.Thickness  = 1
-fovCircle.NumSides   = 128
-fovCircle.Radius     = 150
-fovCircle.Filled     = false
-fovCircle.Visible    = false
-fovCircle.Color      = Color3.fromRGB(255, 255, 255)
+-- FOV Circle Drawing
+local fovCircle = Drawing.new('Circle')
+fovCircle.Thickness    = 1
+fovCircle.NumSides     = 128
+fovCircle.Radius       = 150
+fovCircle.Filled       = false
+fovCircle.Visible      = false
+fovCircle.Color        = Color3.fromRGB(255, 255, 255)
 fovCircle.Transparency = 1
 
--- â”€â”€ Silent Aim state â”€â”€
--- silentPart is set every frame by the SA loop and read by the metatable hook
+-- Silent Aim state. Set every frame by aimConn, read by the metatable hook.
 local silentPart = nil
 
--- Metatable hook for Mouse.Hit / Mouse.UnitRay redirection
--- Wrapped in pcall â€” gracefully degrades if executor doesn't support it
+-- Metatable hook for Mouse.Hit / Mouse.UnitRay redirection.
+-- Wrapped in pcall so it degrades gracefully on executors that block it.
 local _saHookOk = pcall(function()
     local mt       = getrawmetatable(game)
     local oldIndex = mt.__index
 
     setreadonly(mt, false)
     mt.__index = newcclosure(function(self, key)
-        if TG('SilentAimEnabled') and silentPart then
+        if TG('SilentAim') and silentPart then
             local mouse = player:GetMouse()
             if self == mouse then
-                if key == "Hit" then
-                    local pos = silentPart.Position
-                    if TG('SilentPrediction') then
-                        -- lead by velocity Ã— prediction offset
-                        local bv = silentPart:FindFirstChildOfClass("BodyVelocity")
-                        local vel = bv and bv.Velocity or silentPart.AssemblyLinearVelocity
-                        if vel then
-                            pos = pos + vel * SL('PredictionAmount')
-                        end
-                    end
-                    return CFrame.new(pos)
-                elseif key == "UnitRay" then
+                if key == 'Hit' then
+                    return CFrame.new(silentPart.Position)
+                elseif key == 'UnitRay' then
                     local cam = workspace.CurrentCamera
                     if cam then
                         local pos  = silentPart.Position
@@ -4858,65 +4786,80 @@ local _saHookOk = pcall(function()
 end)
 
 if not _saHookOk then
-    warn('[VoidSpam] Silent aim metatable hook failed â€” executor may not support it.')
+    warn('[VoidSpam] Silent aim metatable hook failed - executor may not support it.')
 end
 
--- â”€â”€ Aimbot RenderStepped â”€â”€
-local aimConn = RunService.RenderStepped:Connect(function(dt)
+-- Aimbot / Silent Aim / Triggerbot RenderStepped
+local triggerArmed = 0
+local triggerTimer = 0
+
+local aimConn = RunService.RenderStepped:Connect(function()
     local cam = workspace.CurrentCamera
     if not cam then return end
 
-    -- â”€â”€ FOV circle â”€â”€
-    local showCircle = TG('AimFOVCircle') and (TG('AimbotEnabled') or TG('SilentAimEnabled'))
-    fovCircle.Visible     = showCircle
+    local centre   = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+    local aimKey   = Options.AimbotKey and Options.AimbotKey:GetState() or false
+    local aimFOVPx = fovToPixels(SL('AimbotFOV'))
+
+    -- FOV circle
+    local showCircle = TG('AimbotEnabled') or TG('SilentAim')
+    fovCircle.Visible = showCircle
     if showCircle then
-        -- Show the larger of the two active FOVs
-        local r = TG('AimbotEnabled') and SL('AimFOV') or 0
-        if TG('SilentAimEnabled') then r = math.max(r, SL('SilentFOV')) end
-        fovCircle.Radius     = r
-        fovCircle.Position   = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
-        fovCircle.Color      = COL('AimCircleColor', Color3.fromRGB(255, 255, 255))
-        fovCircle.Thickness  = SL('AimCircleThickness')
+        fovCircle.Radius   = aimFOVPx
+        fovCircle.Position = centre
     end
 
-    -- â”€â”€ Regular aimbot â”€â”€
-    if TG('AimbotEnabled') then
-        local keyState = Options.AimKey and Options.AimKey:GetState() or false
-        if keyState then
-            local _, part = findClosestTarget(
-                SL('AimFOV'),
-                Options.AimHitpart and Options.AimHitpart.Value or 'Head',
-                TG('AimVisCheck'),
-                TG('AimTeamCheck')
-            )
-            if part then
-                local targetCF = CFrame.new(cam.CFrame.Position, part.Position)
-                local smooth   = math.clamp(SL('AimSmoothness'), 1, 30)
-                -- Lerp factor: smoothness=1 â†’ instant (1/1=1), smoothness=30 â†’ very slow
-                local lerpT    = math.clamp(dt * (60 / smooth), 0, 1)
-                cam.CFrame     = cam.CFrame:Lerp(targetCF, lerpT)
+    -- Silent aim target update (active while the aim key is held)
+    silentPart = nil
+    if TG('SilentAim') and aimKey then
+        local hitbox = Options.SilentAimHitbox and Options.SilentAimHitbox.Value or 'Head'
+        local _, part = GetAimTarget(aimFOVPx, hitbox)
+        silentPart = part
+    end
+
+    -- Visible aimbot: nudge the mouse toward the target
+    if TG('AimbotEnabled') and aimKey then
+        local prio = Options.AimbotPriority and Options.AimbotPriority.Value or 'Nearest'
+        local _, part = GetAimTarget(aimFOVPx, prio)
+        if part then
+            local v, on = cam:WorldToViewportPoint(part.Position)
+            if on and v.Z > 0 then
+                local offset  = Vector2.new(v.X, v.Y) - centre
+                local maxMove = math.max(SL('AimbotSmooth'), 1)
+                if mousemoverel then
+                    mousemoverel(
+                        math.clamp(offset.X, -maxMove, maxMove),
+                        math.clamp(offset.Y, -maxMove, maxMove)
+                    )
+                end
             end
         end
     end
 
-    -- â”€â”€ Silent aim target update â”€â”€
-    if TG('SilentAimEnabled') then
-        -- Apply hit chance: only lock target when the dice roll passes
-        if math.random(1, 100) <= SL('HitChance') then
-            local _, part = findClosestTarget(
-                SL('SilentFOV'),
-                Options.SilentHitpart and Options.SilentHitpart.Value or 'Head',
-                TG('SilentVisCheck'),
-                TG('SilentTeamCheck')
-            )
-            silentPart = part   -- nil if no target found â€” hook returns nil â†’ no redirect
+    -- Triggerbot: fire once per crosshair contact after the delay
+    if TG('TriggerbotEnabled') then
+        local trgKey = Options.TriggerbotKey and Options.TriggerbotKey:GetState() or false
+        if trgKey then
+            local hitbox = Options.TriggerbotHitbox and Options.TriggerbotHitbox.Value or 'Head'
+            local plr, _ = GetAimTarget(12, hitbox)
+            local now    = tick()
+            if plr and triggerArmed == 0 then
+                triggerArmed = 1
+                triggerTimer = now
+            end
+            if triggerArmed == 1 and (now - triggerTimer) >= (SL('TriggerbotDelay') / 1000) then
+                if mouse1press and mouse1release then
+                    mouse1press()
+                    mouse1release()
+                end
+                triggerArmed = 2
+            end
+            if not plr then triggerArmed = 0 end
         else
-            silentPart = nil
-    if gunFallbackConn then gunFallbackConn:Disconnect() gunFallbackConn = nil end    -- miss this frame
+            triggerArmed = 0
         end
     else
-        silentPart = nil
-    if gunFallbackConn then gunFallbackConn:Disconnect() gunFallbackConn = nil end
+        triggerArmed = 0
     end
 end)
 
