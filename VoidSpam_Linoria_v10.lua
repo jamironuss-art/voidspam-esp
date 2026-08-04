@@ -5112,6 +5112,7 @@ task.spawn(function()
         local real_ang_vel
 
         RunService:BindToRenderStep(tostring(math.random(100000, 999999)), 0, LPH_NO_VIRTUALIZE(function()
+            if server_cf_sync then return end
             local root = LocalChar and LocalChar.PrimaryPart
             if not root or not root.Parent or not real then return end
             root.AssemblyLinearVelocity = real_lin_vel or Vector3.zero
@@ -5125,7 +5126,10 @@ task.spawn(function()
             real = root.CFrame
             real_lin_vel = root.AssemblyLinearVelocity
             real_ang_vel = root.AssemblyAngularVelocity
-            if server_cf_sync then states.server_cf = real end
+            if server_cf_sync then
+                states.server_cf = real
+                return
+            end
             root.CFrame = states.server_cf
         end))
     end))
