@@ -6498,10 +6498,8 @@ task.spawn(function()
 end)
 
 --  TAB - ESP
---  TAB - ESP
--- --------------------------------------------------------------------
---  TAB - ESP
--- --------------------------------------------------------------------
+local GEspMain   = Tabs.ESP:AddLeftGroupbox('Main')
+local GEspBox    = Tabs.ESP:AddLeftGroupbox('Box')
 local GEspHealth = Tabs.ESP:AddLeftGroupbox('Health')
 local GTracer    = Tabs.ESP:AddRightGroupbox('Tracer / Snapline')
 local GChams     = Tabs.ESP:AddRightGroupbox('Chams')
