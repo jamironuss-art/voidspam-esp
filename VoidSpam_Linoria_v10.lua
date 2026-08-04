@@ -1,6 +1,6 @@
 -- â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
 -- â•‘  VOID SPAM  â€”  LINORIA EDITION  v10                     â•‘
--- â•‘  Tabs: ESP | Aimbot | Visuals | Movement | Settings     â•‘
+-- â•‘  Tabs: ESP | Aimbot | Ragebot | Visuals | Movement | Settings     â•‘
 -- â•‘  â€¢ Real LinoriaLib loaded from GitHub                   â•‘
 -- â•‘  â€¢ Draggable â€” built into LinoriaLib                    â•‘
 -- â•‘  â€¢ Mobile: 60% wide / 50% tall  |  PC: fixed 660Ã—620   â•‘
@@ -4838,17 +4838,1670 @@ local Window = Library:CreateWindow({
 local Tabs = {
     ESP      = Window:AddTab('ESP'),
     Aimbot   = Window:AddTab('Aimbot'),
+    Ragebot  = Window:AddTab('Ragebot'),
     Weapon   = Window:AddTab('Weapon'),
     Visuals  = Window:AddTab('Visuals'),
     Movement = Window:AddTab('Movement'),
     Settings = Window:AddTab('Settings'),
 }
 
--- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
---  TAB â€” ESP
--- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-local GEspMain   = Tabs.ESP:AddLeftGroupbox('Main')
-local GEspBox    = Tabs.ESP:AddLeftGroupbox('Box')
+-- =====================================================
+--  RIVALS CORE  (ported from Aetherea)
+--  Combat state + module infra for Silent Aim /
+--  Triggerbot / Targeting / Rage Bot / Anti Aim /
+--  Weapon Mods.  UI lives on the Aimbot / Ragebot tabs.
+-- =====================================================
+
+local Workspace         = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService  = game:GetService("UserInputService")
+
+local LPH_NO_VIRTUALIZE = nil
+if type(getgenv) == 'function' then LPH_NO_VIRTUALIZE = getgenv().LPH_NO_VIRTUALIZE end
+if type(LPH_NO_VIRTUALIZE) ~= 'function' then LPH_NO_VIRTUALIZE = function(f) return f end end
+local LPH_JIT_MAX = nil
+if type(getgenv) == 'function' then LPH_JIT_MAX = getgenv().LPH_JIT_MAX end
+if type(LPH_JIT_MAX) ~= 'function' then LPH_JIT_MAX = function(f) return f end end
+
+local LocalChar = player.Character
+player.CharacterAdded:Connect(function(char)
+    LocalChar = char
+    pcall(function() char:WaitForChild("Humanoid", 5) end)
+    pcall(function() char:WaitForChild("HumanoidRootPart", 5) end)
+end)
+
+local kTargetList    = { "FOV", "Visible" }
+local kCheckScoped   = { "None", "Sniper", "Crossbow" }
+local kGunIgnoreList = { "None", "Katana", "Riot Shield" }
+local kBodyParts = {
+    "Head", "HumanoidRootPart", "UpperTorso", "LowerTorso",
+    "LeftFoot", "LeftLowerLeg", "LeftUpperLeg",
+    "RightFoot", "RightLowerLeg", "RightUpperLeg",
+    "LeftHand", "LeftLowerArm", "LeftUpperArm",
+    "RightHand", "RightLowerArm", "RightUpperArm",
+}
+local kPitchOptions = { "None", "Offset", "Custom", "Random", "Look Up", "Look Down" }
+local kYawOptions   = { "None", "Offset", "Custom", "Random", "Spin", "Jitter", "Backwards" }
+
+local states = {
+    target = nil,
+    target_part = nil,
+    server_cf = nil,
+    is_reloading = false,
+    screen_gui = Instance.new("ScreenGui"),
+    targeting_state = {
+        target_group = "Visible",
+        ignore = { "None" },
+        radius = 100,
+        max_distance = 150,
+        weight_ratio = 0.7,
+        reaction_time = 0,
+        forget_time = 1,
+        target = "Closest Part",
+        include_parts = { "Head", "UpperTorso" },
+
+        wallcheck = true,
+        show_fov = false,
+
+        fov_outline = false,
+        fov_fill = false,
+        fov_lerp = 1,
+
+        fov_rotation = 0,
+        fov_rotation_speed = 1,
+
+        fov_start_color = Color3.fromRGB(255, 255, 255),
+        fov_mid_color = Color3.fromRGB(255, 255, 255),
+        fov_end_color = Color3.fromRGB(255, 255, 255),
+
+        fov_outline_start_color = Color3.fromRGB(0, 0, 0),
+        fov_outline_mid_color = Color3.fromRGB(0, 0, 0),
+        fov_outline_end_color = Color3.fromRGB(0, 0, 0),
+
+        fov_transparency = 0,
+        fov_outline_transparency = 0,
+
+        fov_position = { ["None"] = true },
+
+        blocking = {},
+    },
+    legit_state = {
+        silent_aim = {
+            enabled = false,
+            hit_chance = 100,
+            manipulation = false,
+            visualize = false,
+        },
+        triggerbot = {
+            enabled = false,
+            shoot_delay = 0,
+            check_scoped = { "Sniper", "Crossbow" },
+
+            triggerbot_shot_started = Instance.new("BindableEvent"),
+            triggerbot_shot_finished = Instance.new("BindableEvent"),
+            triggerbot_active = false,
+        }
+    },
+    rage_state = {
+        weapons = {
+            no_recoil = false,
+            no_spread = false,
+            full_auto = false,
+            firerate = 100,
+        },
+        pluggwalk = {
+            enabled = false,
+        },
+        rage_bot = {
+            enabled = false,
+            void_spam = false,
+            hide = 0.25,
+            attack = 0.1,
+            shoot_attempts = 1,
+            attack_mode = "Gun",
+            preferred = "Primary",
+            hit_notifications = true,
+            rage_hud = true,
+
+            sync_void_state = Instance.new("BindableEvent"),
+        },
+        anti_aim = {
+            enabled = false,
+            pitch = "None",
+            pitch_angle = 0,
+            yaw = "None",
+            yaw_angle = 0,
+            jitter_angle = 20,
+            speed = 10,
+            underground = false,
+        },
+    },
+    visuals_state = {
+        colors = {
+            trail_color = Color3.fromRGB(255, 0, 255),
+        },
+    },
+}
+
+-- Minimal ESP interface shim.  The full Aetherea Sense isn't ported,
+-- so the target highlight is a no-op and the manipulation visualizer
+-- simply parents a neon part into the workspace.
+local EspInterface = {
+    GlobalChamRenderer = { Viewport = Workspace },
+    SetTarget = function() end,
+}
+
+local function SetSilentAimEnabled(state)
+    if state == states.legit_state.silent_aim.enabled then return end
+    states.legit_state.silent_aim.enabled = state
+end
+
+local function SetTriggerbotEnabled(state)
+    if state == states.legit_state.triggerbot.enabled then return end
+    states.legit_state.triggerbot.enabled = state
+end
+
+local function SetRageBotEnabled(state)
+    if state == states.rage_state.rage_bot.enabled then return end
+    states.rage_state.rage_bot.enabled = state
+    states.rage_state.rage_bot.sync_void_state:Fire()
+end
+
+local function SetVoidSpamEnabled(state)
+    if state == states.rage_state.rage_bot.void_spam then return end
+    states.rage_state.rage_bot.void_spam = state
+    states.rage_state.rage_bot.sync_void_state:Fire()
+end
+
+local function SetAntiAimEnabled(state)
+    if state == states.rage_state.anti_aim.enabled then return end
+    states.rage_state.anti_aim.enabled = state
+end
+
+local function multiToList(tbl)
+    local out = {}
+    for k, v in pairs(tbl or {}) do
+        if v then table.insert(out, k) end
+    end
+    return out
+end
+
+pcall(function()
+    states.screen_gui.Name = ""
+    states.screen_gui.DisplayOrder = 999
+    states.screen_gui.ResetOnSpawn = false
+    states.screen_gui.IgnoreGuiInset = true
+    if gethui and type(gethui) == 'function' then
+        states.screen_gui.Parent = gethui()
+    else
+        states.screen_gui.Parent = playerGui
+    end
+end)
+
+--  RIVALS module hooks + combat loops  (installed once modules are ready)
+task.spawn(function()
+    local modules = {}
+
+    local function requireMod(path)
+        local ok, res = pcall(function() return require(path) end)
+        return ok and res or nil
+    end
+
+    local rs_modules = ReplicatedStorage:FindFirstChild("Modules")
+    local ps         = player:FindFirstChild("PlayerScripts")
+    local psm        = ps and ps:FindFirstChild("Modules")
+    local psc        = ps and ps:FindFirstChild("Controllers")
+
+    if rs_modules and psm and psc then
+        modules.Utility             = requireMod(rs_modules:WaitForChild("Utility"))
+        modules.OutOfBoundsMachine  = requireMod(rs_modules:WaitForChild("OutOfBoundsMachine"))
+        modules.GameplayUtility     = requireMod(rs_modules:WaitForChild("GameplayUtility"))
+
+        modules.Gun                 = requireMod(psm.ItemTypes:WaitForChild("Gun"))
+        modules.Melee               = requireMod(psm.ItemTypes:WaitForChild("Melee"))
+        modules.Knife               = requireMod(psm.Items:WaitForChild("Knife"))
+
+        modules.CameraController    = requireMod(psc:WaitForChild("CameraController"))
+        modules.MechanicsController = requireMod(psc:WaitForChild("MechanicsController"))
+        modules.FighterController   = requireMod(psc:WaitForChild("FighterController"))
+
+        local crep = psm:FindFirstChild("ClientReplicatedClasses")
+        if crep then
+            modules.ClientEntity = requireMod(crep:FindFirstChild("ClientEntity"))
+        end
+    end
+
+    local ready = 0
+    while (not modules.FighterController or not modules.Gun or not modules.Utility or not modules.MechanicsController) do
+        ready = ready + 1
+        if ready > 200 then break end
+        task.wait(0.5)
+    end
+    if not modules.FighterController or not modules.Gun or not modules.Utility or not modules.MechanicsController then
+        warn('[VoidSpam] RIVALS combat modules unavailable - combat features disabled.')
+        return
+    end
+
+    -- Camera freeze (used by manipulation / throwables)
+    local frozen = false
+    local org_cam = modules.CameraController.Update
+    modules.CameraController.Update = LPH_NO_VIRTUALIZE(function(self, ...)
+        if frozen then return end
+        return org_cam(self, ...)
+    end)
+
+    local function FreezeCamera() frozen = true end
+    local function UnfreezeCamera() frozen = false end
+
+    -- Reload tracker
+    local orig_startrl = modules.Gun.StartReloading
+    modules.Gun.StartReloading = LPH_NO_VIRTUALIZE(function(u21, p22, p23, p24, p25)
+        states.is_reloading = true
+        task.delay((u21.Info and u21.Info.ReloadLength or 1.5) + 0.1, function()
+            states.is_reloading = false
+        end)
+        return orig_startrl(u21, p22, p23, p24, p25)
+    end)
+
+    -- Server CF sync / desync (void spam + manipulation)
+    local server_cf_sync = true
+
+    pcall(LPH_JIT_MAX(function()
+        local real
+        local real_lin_vel
+        local real_ang_vel
+
+        RunService:BindToRenderStep(tostring(math.random(100000, 999999)), 0, LPH_NO_VIRTUALIZE(function()
+            local root = LocalChar and LocalChar.PrimaryPart
+            if not root or not root.Parent or not real then return end
+            root.AssemblyLinearVelocity = real_lin_vel or Vector3.zero
+            root.AssemblyAngularVelocity = real_ang_vel or Vector3.zero
+            root.CFrame = real
+        end))
+
+        RunService.PostSimulation:Connect(LPH_NO_VIRTUALIZE(function()
+            local root = LocalChar and LocalChar.PrimaryPart
+            if not root or not root.Parent then return end
+            real = root.CFrame
+            real_lin_vel = root.AssemblyLinearVelocity
+            real_ang_vel = root.AssemblyAngularVelocity
+            if server_cf_sync then states.server_cf = real end
+            root.CFrame = states.server_cf
+        end))
+    end))
+
+    local function ServerCFDesync() server_cf_sync = false end
+    local function ServerCFSync() server_cf_sync = true end
+
+    -- OOB exploit (keeps void spam from triggering the out-of-bounds kill)
+    local NamecallDispatcher = { Hooks = {}, Original = nil }
+    function NamecallDispatcher:Register(callback)
+        self.Hooks[#self.Hooks + 1] = callback
+        return #self.Hooks
+    end
+    function NamecallDispatcher:CallOriginal(object, ...)
+        if self.Original then return self.Original(object, ...) end
+        return nil
+    end
+    pcall(function()
+        NamecallDispatcher.Original = hookmetamethod(game, "__namecall", newcclosure(LPH_NO_VIRTUALIZE(function(object, ...)
+            local hooks = NamecallDispatcher.Hooks
+            local count = #hooks
+            if count == 0 then return NamecallDispatcher.Original(object, ...) end
+            local method = getnamecallmethod()
+            for i = 1, count do
+                local result = hooks[i](object, method, ...)
+                if result ~= nil and result ~= false then
+                    if result == true then return nil end
+                    return result
+                end
+            end
+            return NamecallDispatcher.Original(object, ...)
+        end)))
+    end)
+
+    local oob_remote = nil
+    pcall(function()
+        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+        oob_remote = remotes and remotes.Replication.Fighter.OutOfBounds
+    end)
+    if oob_remote then
+        NamecallDispatcher:Register(LPH_JIT_MAX(function(self, method, ...)
+            if method ~= "FireServer" or self ~= oob_remote then return false end
+            return true
+        end))
+    end
+
+    pcall(function()
+        modules.OutOfBoundsMachine.IsOutOfBounds = function() return false end
+        modules.OutOfBoundsMachine.Update = LPH_NO_VIRTUALIZE(function() return end)
+        modules.GameplayUtility.GetOOBWarnDelay = function() return 9999 end
+        modules.GameplayUtility.GetOOBKillDelay = function() return 9999 end
+        modules.GameplayUtility.IsWithinOOBPart = function() return end
+    end)
+
+    -- Muzzle / screen helpers
+    local GetMuzzlePos = LPH_JIT_MAX(function()
+        local vms = Workspace:FindFirstChild("ViewModels")
+        if not vms then return nil end
+        local first_person = vms:FindFirstChild("FirstPerson")
+        if not first_person then return nil end
+        local player_name = player.Name
+        for _, model in pairs(first_person:GetChildren()) do
+            if not model:IsA("Model") or not model.Name:find("^" .. player_name) then continue end
+            local item_visual = model:FindFirstChild("ItemVisual")
+            if not item_visual then continue end
+            local body = item_visual:FindFirstChild("Body")
+            if not body then continue end
+            local body_primary = body:FindFirstChild("BodyPrimary")
+            if not body_primary then continue end
+            local muzzle = body_primary:FindFirstChild("_muzzle")
+            if muzzle and muzzle:IsA("Attachment") then return muzzle.WorldPosition end
+        end
+        return nil
+    end)
+
+    local WorldToScreen = LPH_NO_VIRTUALIZE(function(world_position)
+        local screen_point, on_screen = Workspace.CurrentCamera:WorldToViewportPoint(world_position)
+        return Vector2.new(screen_point.X, screen_point.Y), on_screen, screen_point.Z
+    end)
+
+    local SetTarget = LPH_NO_VIRTUALIZE(function(plr, part)
+        states.target = plr
+        states.target_part = part
+        EspInterface.SetTarget(plr)
+    end)
+
+    -- Valid-position search (manipulation)
+    local candidates = {
+        Vector3.new(5, 3, 5),
+        Vector3.new(-5, 3, 5),
+        Vector3.new(5, 3, -5),
+        Vector3.new(-5, 3, -5),
+        Vector3.new(0, 5, 8),
+        Vector3.new(0, 5, -8),
+    }
+
+    local overlap_params = OverlapParams.new()
+    overlap_params.FilterType = Enum.RaycastFilterType.Exclude
+
+    local ray_params = RaycastParams.new()
+    ray_params.FilterType = Enum.RaycastFilterType.Exclude
+
+    local valid_position_cache = {}
+    local valid_position_cache_ttl = 0.5
+
+    local FindValidPosition = LPH_NO_VIRTUALIZE(function(target)
+        if not LocalChar then return nil end
+        overlap_params.FilterDescendantsInstances = { LocalChar }
+        ray_params.FilterDescendantsInstances = { LocalChar }
+
+        local target_pos = target.Position
+        local target_model = target.Parent
+
+        for i = 1, #candidates do
+            local offset = candidates[i]
+            local pos = target_pos + offset
+
+            local result = Workspace:Raycast(pos, target_pos - pos, ray_params)
+            if not result or result.Instance:IsDescendantOf(target_model) then
+                local parts = Workspace:GetPartBoundsInBox(CFrame.new(pos), Vector3.new(3, 6, 3), overlap_params)
+                local blocked = false
+                for j = 1, #parts do
+                    if parts[j].CanCollide then
+                        blocked = true
+                        break
+                    end
+                end
+                if not blocked then return offset end
+            end
+        end
+
+        return nil
+    end)
+
+    local GetCachedValidPosition = LPH_NO_VIRTUALIZE(function(target)
+        if not target or not target.Parent then return nil end
+        local now = os.clock()
+        local entry = valid_position_cache[target]
+        if entry and now - entry.time < valid_position_cache_ttl then
+            return entry.value
+        end
+        local value = FindValidPosition(target)
+        valid_position_cache[target] = { value = value, time = now }
+        return value
+    end)
+
+    -- Katana / Riot Shield "ignore" support
+    pcall(function()
+        task.wait(3)
+        task.spawn(function()
+            local katana_path = player.PlayerScripts.Modules.Items:FindFirstChild("Katana", true)
+            local riot_path = player.PlayerScripts.Modules.Items:FindFirstChild("Riot Shield", true)
+            local katana = katana_path and require(katana_path)
+            local riot = riot_path and require(riot_path)
+
+            if katana and type(katana) == "table" and katana.StartAiming then
+                local old = katana.StartAiming
+                katana.StartAiming = function(self, force)
+                    if not table.find(states.targeting_state.ignore, "Katana") then return old(self, force) end
+                    local fighter = self.ClientFighter
+                    local plr = fighter and fighter.Player
+                    if plr then
+                        states.targeting_state.blocking[plr.Name] = true
+                        local dur = self.Info and self.Info.DeflectDuration or 0.6
+                        task.delay(dur, function() states.targeting_state.blocking[plr.Name] = nil end)
+                    end
+                    return old(self, force)
+                end
+            end
+
+            if riot and type(riot) == "table" and riot._UpdateUnequippedViewModel then
+                local old = riot._UpdateUnequippedViewModel
+                riot._UpdateUnequippedViewModel = function(self, ...)
+                    if not table.find(states.targeting_state.ignore, "Riot Shield") then return old(self, ...) end
+                    local was_on_back = self._shieldOnBack
+                    local fighter = self.ClientFighter
+                    local plr = fighter and fighter.Player
+                    local on_back = not (self.IsEquipped or fighter:IsActuallyFirstPerson()) and not fighter:Get("IsHiddenByEmotes")
+                    if was_on_back ~= on_back then
+                        self._shieldOnBack = on_back
+                        if on_back then
+                            states.targeting_state.blocking[plr.Name] = true
+                        else
+                            states.targeting_state.blocking[plr.Name] = nil
+                        end
+                    end
+                    return old(self, ...)
+                end
+            end
+        end)
+    end)
+
+    -- FOV circle UI + target acquisition
+    pcall(function()
+        local fov_frame = Instance.new("Frame")
+        fov_frame.Name = ""
+        fov_frame.Parent = states.screen_gui
+        fov_frame.AnchorPoint = Vector2.new(0.5, 0.5)
+        fov_frame.Position = UDim2.fromScale(0.5, 0.5)
+        fov_frame.Size = UDim2.fromScale(1, 1)
+        fov_frame.BackgroundTransparency = 1
+        fov_frame.BorderSizePixel = 0
+        fov_frame.ZIndex = 1
+
+        local fov_circle_inline = Instance.new("Frame")
+        fov_circle_inline.Name = ""
+        fov_circle_inline.Parent = fov_frame
+        fov_circle_inline.AnchorPoint = Vector2.new(0.5, 0.5)
+        fov_circle_inline.BackgroundTransparency = 1
+        fov_circle_inline.ZIndex = 1
+
+        local fov_circle_inline_stroke = Instance.new("UIStroke")
+        fov_circle_inline_stroke.Name = ""
+        fov_circle_inline_stroke.Parent = fov_circle_inline
+        fov_circle_inline_stroke.Color = Color3.new(1, 1, 1)
+        fov_circle_inline_stroke.Thickness = 1
+
+        local fov_circle_inline_grad = Instance.new("UIGradient")
+        fov_circle_inline_grad.Name = ""
+        fov_circle_inline_grad.Parent = fov_circle_inline_stroke
+
+        local fov_circle = Instance.new("Frame")
+        fov_circle.Name = ""
+        fov_circle.Parent = fov_frame
+        fov_circle.AnchorPoint = Vector2.new(0.5, 0.5)
+        fov_circle.ZIndex = 2
+
+        local fov_circle_stroke = Instance.new("UIStroke")
+        fov_circle_stroke.Name = ""
+        fov_circle_stroke.Parent = fov_circle
+        fov_circle_stroke.Color = Color3.new(1, 1, 1)
+        fov_circle_stroke.Thickness = 1
+
+        local fov_circle_grad = Instance.new("UIGradient")
+        fov_circle_grad.Name = ""
+        fov_circle_grad.Parent = fov_circle_stroke
+
+        local fov_circle_fill = Instance.new("UIGradient")
+        fov_circle_fill.Name = ""
+        fov_circle_fill.Parent = fov_circle
+
+        local fov_circle_outline = Instance.new("Frame")
+        fov_circle_outline.Name = ""
+        fov_circle_outline.Parent = fov_frame
+        fov_circle_outline.AnchorPoint = Vector2.new(0.5, 0.5)
+        fov_circle_outline.BackgroundTransparency = 1
+        fov_circle_outline.ZIndex = 3
+
+        local fov_circle_outline_stroke = Instance.new("UIStroke")
+        fov_circle_outline_stroke.Name = ""
+        fov_circle_outline_stroke.Parent = fov_circle_outline
+        fov_circle_outline_stroke.Color = Color3.new(1, 1, 1)
+        fov_circle_outline_stroke.Thickness = 1
+
+        local fov_circle_outline_grad = Instance.new("UIGradient")
+        fov_circle_outline_grad.Name = ""
+        fov_circle_outline_grad.Parent = fov_circle_outline_stroke
+
+        local circle_mod = Instance.new("UICorner")
+        circle_mod.Name = ""
+        circle_mod.Parent = fov_circle_inline
+        circle_mod.CornerRadius = UDim.new(1, 0)
+        circle_mod:Clone().Parent = fov_circle
+        circle_mod:Clone().Parent = fov_circle_outline
+
+        local camera = Workspace.CurrentCamera or Workspace.Camera
+        local raycast_params = RaycastParams.new()
+        raycast_params.FilterType = Enum.RaycastFilterType.Exclude
+        raycast_params.IgnoreWater = true
+        raycast_params.FilterDescendantsInstances = { player.Character }
+        player.CharacterAdded:Connect(function(char)
+            raycast_params.FilterDescendantsInstances = { char }
+        end)
+
+        local wallcheck_cache = {}
+        local wallcheck_cache_ttl = 0.15
+
+        local WallCheck = LPH_NO_VIRTUALIZE(function(character, part)
+            if not states.targeting_state.wallcheck then return true end
+            local char_cache = wallcheck_cache[character]
+            if not char_cache then
+                char_cache = {}
+                wallcheck_cache[character] = char_cache
+            end
+            local now = os.clock()
+            local cached = char_cache[part]
+            if cached and (now - cached.time) < wallcheck_cache_ttl then
+                return cached.value
+            end
+            local origin = camera.CFrame.Position
+            local result = Workspace:Raycast(origin, part.Position - origin, raycast_params)
+            local passed = not result or result.Instance:IsDescendantOf(character)
+            char_cache[part] = { time = now, value = passed }
+            return passed
+        end)
+
+        local FindBestTarget = LPH_JIT_MAX(function()
+            local origin = camera.CFrame.Position
+
+            local best_part
+            local best_player
+            local best_distance = math.huge
+
+            for _, plr in Players:GetPlayers() do
+                if plr == player then continue end
+                local character = plr.Character
+                if not character then continue end
+                local root = character:FindFirstChild("HumanoidRootPart")
+                local humanoid = character:FindFirstChildOfClass("Humanoid")
+                if not root or not humanoid or humanoid.Health <= 0 then continue end
+
+                local their_team = plr:GetAttribute("TeamID")
+                if their_team and their_team == player:GetAttribute("TeamID") then continue end
+
+                if states.targeting_state.blocking[plr.Name] then continue end
+
+                local root_dist = (root.Position - origin).Magnitude
+                if root_dist > (states.targeting_state.max_distance + 6) then continue end
+
+                local closest_part = nil
+                local closest = math.huge
+
+                if states.targeting_state.target == "Closest Part" then
+                    for _, part_name in states.targeting_state.include_parts do
+                        if type(part_name) ~= "string" then continue end
+                        local part = character:FindFirstChild(part_name)
+                        if not part or not part:IsA("BasePart") then continue end
+                        local world_dist = (part.Position - origin).Magnitude
+                        if world_dist > states.targeting_state.max_distance then continue end
+                        local screen, visible = camera:WorldToViewportPoint(part.Position)
+                        if not visible and screen.Z <= 0 then continue end
+                        local dx = screen.X - fov_circle.Position.X.Offset
+                        local dy = screen.Y - fov_circle.Position.Y.Offset
+                        local screen_dist = dx * dx + dy * dy
+                        local radius_sq = states.targeting_state.radius * states.targeting_state.radius
+                        if states.targeting_state.target_group == "FOV" and screen_dist > radius_sq then continue end
+                        local score = (screen_dist * states.targeting_state.weight_ratio) + (world_dist * (1 - states.targeting_state.weight_ratio))
+                        if score < closest then
+                            closest = score
+                            closest_part = part
+                        end
+                    end
+                else
+                    local part = character:FindFirstChild(states.targeting_state.target)
+                    if part and part:IsA("BasePart") then
+                        local world_dist = (part.Position - origin).Magnitude
+                        if world_dist <= states.targeting_state.max_distance then
+                            local screen, visible = camera:WorldToViewportPoint(part.Position)
+                            if visible or screen.Z > 0 then
+                                local dx = screen.X - fov_circle.Position.X.Offset
+                                local dy = screen.Y - fov_circle.Position.Y.Offset
+                                local screen_dist = dx * dx + dy * dy
+                                local radius_sq = states.targeting_state.radius * states.targeting_state.radius
+                                if states.targeting_state.target_group ~= "FOV" or screen_dist <= radius_sq then
+                                    closest = (screen_dist * states.targeting_state.weight_ratio) + (world_dist * (1 - states.targeting_state.weight_ratio))
+                                    closest_part = part
+                                end
+                            end
+                        end
+                    end
+                end
+
+                if not closest_part or closest >= best_distance then continue end
+                if not WallCheck(character, closest_part) then continue end
+
+                best_distance = closest
+                best_player = plr
+                best_part = closest_part
+            end
+
+            return best_player, best_part
+        end)
+
+        local pending_player
+        local pending_part
+        local pending_time = 0
+
+        local current_player
+        local current_part
+        local current_lost_time = 0
+
+        local next_search = 0
+        local current_pos = UDim2.fromOffset((camera.ViewportSize / 2).X, (camera.ViewportSize / 2).Y)
+        local target_scan_interval = 0.03
+
+        RunService.RenderStepped:Connect(LPH_NO_VIRTUALIZE(function()
+            local now = os.clock()
+            local state = states.targeting_state
+
+            if not (states.legit_state.silent_aim.enabled or states.rage_state.rage_bot.enabled or states.legit_state.triggerbot.enabled or state.show_fov) then
+                if current_player then
+                    current_player = nil
+                    current_part = nil
+                    current_lost_time = 0
+                    SetTarget(nil, nil)
+                end
+                fov_frame.Visible = false
+                return
+            end
+
+            fov_frame.Visible = state.show_fov
+
+            local target_pos = UDim2.fromOffset((camera.ViewportSize / 2).X, (camera.ViewportSize / 2).Y)
+            if state.fov_position["Barrel"] and not states.target_part then
+                local muzzle_pos = GetMuzzlePos()
+                if muzzle_pos then
+                    local screenPos, on_screen = WorldToScreen(muzzle_pos)
+                    if on_screen then
+                        target_pos = UDim2.fromOffset(screenPos.X, screenPos.Y)
+                    else
+                        target_pos = UDim2.fromOffset((camera.ViewportSize / 2).X, (camera.ViewportSize / 2).Y)
+                    end
+                end
+            end
+
+            if state.fov_position["Target"] and states.target_part then
+                local hitbox_pos = states.target_part.Position
+                if hitbox_pos then
+                    local screenPos, on_screen = WorldToScreen(hitbox_pos)
+                    if on_screen then
+                        target_pos = UDim2.fromOffset(screenPos.X, screenPos.Y)
+                    else
+                        target_pos = UDim2.fromOffset((camera.ViewportSize / 2).X, (camera.ViewportSize / 2).Y)
+                    end
+                end
+            end
+
+            if state.fov_lerp and state.fov_lerp > 0 then
+                current_pos = current_pos:Lerp(target_pos, state.fov_lerp)
+            else
+                current_pos = target_pos
+            end
+
+            local radius = state.radius
+            local transparency = state.fov_transparency
+            local rotation = state.fov_rotation
+            local rot_speed = state.fov_rotation_speed * 0.5
+            if state.fov_rotation_speed > 0 then
+                rotation = (state.fov_rotation + now * rot_speed * 360) % 360
+            end
+
+            local color_start = state.fov_start_color
+            local color_mid = state.fov_mid_color
+            local color_end = state.fov_end_color
+
+            local outline_transparency = state.fov_outline_transparency
+            local outline_color_start = state.fov_outline_start_color
+            local outline_color_mid = state.fov_outline_mid_color
+            local outline_color_end = state.fov_outline_end_color
+
+            fov_circle_inline.Position = current_pos
+            fov_circle_inline.Size = UDim2.fromOffset((radius * 2) - 2, (radius * 2) - 2)
+            fov_circle_inline.Visible = state.fov_outline
+            fov_circle_inline_stroke.Transparency = outline_transparency
+            fov_circle_inline_grad.Color = ColorSequence.new{ColorSequenceKeypoint.new(0, outline_color_start), ColorSequenceKeypoint.new(0.5, outline_color_mid), ColorSequenceKeypoint.new(1, outline_color_end)}
+            fov_circle_inline_grad.Rotation = rotation
+
+            fov_circle.Position = current_pos
+            fov_circle.Size = UDim2.fromOffset(radius * 2, radius * 2)
+            fov_circle.Visible = state.show_fov
+            fov_circle.BackgroundTransparency = state.fov_fill and math.clamp(0.35 + (transparency * 0.65), 0, 1) or 1
+            fov_circle_stroke.Transparency = transparency
+            fov_circle_grad.Color = ColorSequence.new{ColorSequenceKeypoint.new(0, color_start), ColorSequenceKeypoint.new(0.5, color_mid), ColorSequenceKeypoint.new(1, color_end)}
+            fov_circle_grad.Rotation = rotation
+            fov_circle_fill.Color = ColorSequence.new{ColorSequenceKeypoint.new(0, color_start), ColorSequenceKeypoint.new(0.5, color_mid), ColorSequenceKeypoint.new(1, color_end)}
+            fov_circle_fill.Rotation = rotation
+
+            fov_circle_outline.Position = current_pos
+            fov_circle_outline.Size = UDim2.fromOffset((radius * 2) + 2, (radius * 2) + 2)
+            fov_circle_outline.Visible = state.fov_outline
+            fov_circle_outline_stroke.Transparency = outline_transparency
+            fov_circle_outline_grad.Color = ColorSequence.new{ColorSequenceKeypoint.new(0, outline_color_start), ColorSequenceKeypoint.new(0.5, outline_color_mid), ColorSequenceKeypoint.new(1, outline_color_end)}
+            fov_circle_outline_grad.Rotation = rotation
+
+            if now < next_search then return end
+            next_search = now + math.max(state.reaction_time / 1000, target_scan_interval)
+
+            local best_player, best_part = FindBestTarget()
+
+            if best_player ~= pending_player or best_part ~= pending_part then
+                pending_player = best_player
+                pending_part = best_part
+                pending_time = now
+                return
+            end
+
+            if best_player then
+                current_lost_time = 0
+                if current_player ~= best_player or current_part ~= best_part then
+                    if now - pending_time >= state.reaction_time / 1000 then
+                        current_player = best_player
+                        current_part = best_part
+                        SetTarget(best_player, best_part)
+                    end
+                end
+                return
+            end
+
+            if not current_player then
+                current_lost_time = 0
+                return
+            end
+
+            if state.forget_time <= 0 then
+                current_player = nil
+                current_part = nil
+                SetTarget(nil, nil)
+                return
+            end
+
+            if current_lost_time == 0 then
+                current_lost_time = now
+                return
+            end
+
+            if now - current_lost_time >= state.forget_time then
+                current_player = nil
+                current_part = nil
+                current_lost_time = 0
+                SetTarget(nil, nil)
+            end
+        end))
+    end)
+
+    -- Triggerbot
+    states.legit_state.triggerbot.triggerbot_shot_started.Parent = nil
+    states.legit_state.triggerbot.triggerbot_shot_finished.Parent = nil
+
+    pcall(function()
+        local last_shot = 0
+        RunService.Heartbeat:Connect(LPH_NO_VIRTUALIZE(function()
+            pcall(setthreadidentity, 2)
+            local state = states.legit_state.triggerbot
+            if not state.enabled then
+                if state.triggerbot_active then state.triggerbot_shot_finished:Fire() end
+                pcall(setthreadidentity, 8)
+                return
+            end
+
+            local target = states.target_part
+            if not target then
+                if state.triggerbot_active then state.triggerbot_shot_finished:Fire() end
+                pcall(setthreadidentity, 8)
+                return
+            end
+
+            if states.is_reloading then
+                if state.triggerbot_active then state.triggerbot_shot_finished:Fire() end
+                pcall(setthreadidentity, 8)
+                return
+            end
+
+            local fighter = modules.FighterController:GetFighter(player)
+            if not fighter then pcall(setthreadidentity, 8) return end
+
+            local equipped_item = fighter.EquippedItem
+            if not equipped_item then pcall(setthreadidentity, 8) return end
+
+            if table.find(state.check_scoped, equipped_item.Name) then
+                if not equipped_item:IsFullyAiming() then
+                    if state.triggerbot_active then state.triggerbot_shot_finished:Fire() end
+                    pcall(setthreadidentity, 8)
+                    return
+                end
+            end
+
+            local now = os.clock()
+            local shoot_delay_ms = state.shoot_delay or 100
+            local shoot_delay = shoot_delay_ms / 1000
+
+            if now - last_shot < shoot_delay then pcall(setthreadidentity, 8) return end
+
+            if not state.triggerbot_active then state.triggerbot_shot_started:Fire() end
+
+            last_shot = now
+            modules.MechanicsController:EquippedItemInput("StartShooting")
+            pcall(setthreadidentity, 8)
+        end))
+    end)
+
+    -- Weapon mods (no recoil / no spread / full auto / firerate)
+    pcall(function()
+        local old = {}
+        local weapon_state = states.rage_state.weapons
+        local weapon_last_update = 0
+        local weapon_update_interval = 0.03
+
+        local function RestoreWeaponInfo(info, original)
+            if not info or not original then return end
+            info.ShootRecoil = original.ShootRecoil
+            info.ShootAccuracy = original.ShootAccuracy
+            info.ShootSpread = original.ShootSpread
+            info.QuickShotSpread = original.QuickShotSpread
+            info.ShootSpreadConsistent = original.ShootSpreadConsistent
+            info.AimSpreadMultiplier = original.AimSpreadMultiplier
+            if info.InputSpammingEnabled then info.InputSpammingEnabled.StartShooting = original.StartShooting end
+            info.ShootCooldown = original.ShootCooldown
+        end
+
+        RunService.Heartbeat:Connect(LPH_NO_VIRTUALIZE(function()
+            local fighter = modules.FighterController:GetFighter(player)
+            if not fighter then return end
+            local equipped_item = fighter.EquippedItem
+            if not equipped_item then return end
+            local info = equipped_item.Info
+            if not info then return end
+
+            if not old[equipped_item] then
+                old[equipped_item] = {
+                    ShootRecoil = info.ShootRecoil,
+                    ShootAccuracy = info.ShootAccuracy,
+                    ShootSpread = info.ShootSpread,
+                    QuickShotSpread = info.QuickShotSpread,
+                    ShootSpreadConsistent = info.ShootSpreadConsistent,
+                    AimSpreadMultiplier = info.AimSpreadMultiplier,
+                    StartShooting = info.InputSpammingEnabled and info.InputSpammingEnabled.StartShooting,
+                    ShootCooldown = info.ShootCooldown,
+                }
+            end
+
+            local original = old[equipped_item]
+            local should_apply = weapon_state.no_recoil
+                or weapon_state.no_spread
+                or weapon_state.full_auto
+                or weapon_state.firerate ~= 100
+
+            if not should_apply then
+                RestoreWeaponInfo(info, original)
+                return
+            end
+
+            local now = os.clock()
+            if now - weapon_last_update < weapon_update_interval then return end
+            weapon_last_update = now
+
+            if weapon_state.no_recoil then
+                info.ShootRecoil = 0
+            else
+                info.ShootRecoil = original.ShootRecoil
+            end
+
+            if weapon_state.no_spread then
+                info.ShootAccuracy = 0
+                info.ShootSpread = 0
+                info.QuickShotSpread = 0
+                info.ShootSpreadConsistent = true
+                info.AimSpreadMultiplier = 0
+            else
+                info.ShootAccuracy = original.ShootAccuracy
+                info.ShootSpread = original.ShootSpread
+                info.QuickShotSpread = original.QuickShotSpread
+                info.ShootSpreadConsistent = original.ShootSpreadConsistent
+                info.AimSpreadMultiplier = original.AimSpreadMultiplier
+            end
+
+            if weapon_state.full_auto and info.InputSpammingEnabled then
+                info.InputSpammingEnabled.StartShooting = 0
+            elseif info.InputSpammingEnabled then
+                info.InputSpammingEnabled.StartShooting = original.StartShooting
+            end
+
+            if weapon_state.firerate ~= 100 then
+                info.ShootCooldown = original.ShootCooldown and original.ShootCooldown * (weapon_state.firerate / 100) or nil
+            else
+                info.ShootCooldown = original.ShootCooldown
+            end
+        end))
+    end)
+
+    -- Silent aim (gun / melee / knife) + manipulation
+    pcall(function()
+        local manip_cf
+        local manip_conn
+        local manipulation = false
+        local manip_visualizer = nil
+        local manip_visualizer_conns = {}
+        local last_manip_update = 0
+        local manip_update_interval = 0.02
+
+        local function DestroyManipVisualizer()
+            if manip_visualizer then
+                pcall(function() manip_visualizer:Destroy() end)
+                manip_visualizer = nil
+            end
+            for _, conn in ipairs(manip_visualizer_conns) do
+                conn:Disconnect()
+            end
+            table.clear(manip_visualizer_conns)
+        end
+
+        local function CreateManipVisualizer()
+            if manip_visualizer then return end
+            local root = LocalChar and LocalChar.PrimaryPart
+            if not root then return end
+
+            manip_visualizer = Instance.new("Part")
+            manip_visualizer.Name = ""
+            manip_visualizer.Material = Enum.Material.Neon
+            manip_visualizer.Size = root.Size
+            manip_visualizer.Color = states.visuals_state.colors.trail_color
+            manip_visualizer.CanCollide = false
+            manip_visualizer.CanQuery = false
+            manip_visualizer.CanTouch = false
+            manip_visualizer.CFrame = manip_cf or root.CFrame
+            manip_visualizer.Anchored = true
+            manip_visualizer.Parent = EspInterface.GlobalChamRenderer.Viewport
+
+            table.insert(manip_visualizer_conns, root.Destroying:Connect(function()
+                if manip_visualizer then
+                    pcall(function() manip_visualizer:Destroy() end)
+                    manip_visualizer = nil
+                end
+            end))
+
+            table.insert(manip_visualizer_conns, root.AncestryChanged:Connect(function(_, parent)
+                if not parent and manip_visualizer then
+                    pcall(function() manip_visualizer:Destroy() end)
+                    manip_visualizer = nil
+                end
+            end))
+        end
+
+        local function EnsureManipVisualizer()
+            if not states.legit_state.silent_aim.visualize then
+                DestroyManipVisualizer()
+                return
+            end
+            if not manip_visualizer then
+                CreateManipVisualizer()
+            elseif manip_cf then
+                manip_visualizer.CFrame = manip_cf
+            end
+        end
+
+        local ApplyManipulation = LPH_NO_VIRTUALIZE(function()
+            if not manipulation or not manip_cf then return end
+            local root = LocalChar and LocalChar.PrimaryPart
+            if root and root.Parent then
+                root.CFrame = manip_cf
+            end
+            states.server_cf = manip_cf
+        end)
+
+        local StartManipulation = Instance.new("BindableEvent")
+        StartManipulation.Parent = nil
+
+        StartManipulation.Event:Connect(function(cf)
+            ServerCFDesync()
+            manip_cf = cf
+            manipulation = true
+            last_manip_update = 0
+            ApplyManipulation()
+
+            if not manip_conn then
+                manip_conn = RunService.RenderStepped:Connect(LPH_NO_VIRTUALIZE(function()
+                    if not manipulation or not manip_cf then return end
+                    local now = os.clock()
+                    if now - last_manip_update < manip_update_interval then return end
+                    last_manip_update = now
+                    ApplyManipulation()
+                    if states.legit_state.silent_aim.visualize then
+                        if manip_visualizer then
+                            manip_visualizer.CFrame = manip_cf
+                        else
+                            CreateManipVisualizer()
+                        end
+                    elseif manip_visualizer then
+                        DestroyManipVisualizer()
+                    end
+                end))
+            end
+
+            EnsureManipVisualizer()
+        end)
+
+        local function StopManipulation()
+            manipulation = false
+            manip_cf = nil
+            last_manip_update = 0
+            if manip_conn then
+                manip_conn:Disconnect()
+                manip_conn = nil
+            end
+            DestroyManipVisualizer()
+            ServerCFSync()
+        end
+
+        UserInputService.InputEnded:Connect(function(input)
+            if manipulation and input.UserInputType == Enum.UserInputType.MouseButton1 then
+                StopManipulation()
+            end
+        end)
+
+        states.legit_state.triggerbot.triggerbot_shot_started.Event:Connect(function()
+            states.legit_state.triggerbot.triggerbot_active = true
+        end)
+
+        states.legit_state.triggerbot.triggerbot_shot_finished.Event:Connect(function()
+            states.legit_state.triggerbot.triggerbot_active = false
+            StopManipulation()
+            modules.MechanicsController:EquippedItemInput("FinishShooting")
+        end)
+
+        local shot_offset_cf = modules.Utility:EncodeCFrame(CFrame.new(0.43, 0.25, 0.42))
+        local shot_key_0 = utf8.char(0)
+        local shot_key_1 = utf8.char(1)
+        local shot_key_2 = utf8.char(2)
+        local shot_key_3 = utf8.char(3)
+
+        local BuildShotPayload = LPH_NO_VIRTUALIZE(function(origin, target, part)
+            local aim_cf = modules.Utility:EncodeCFrame(CFrame.new(origin, target))
+            return {
+                [shot_key_0] = aim_cf,
+                [shot_key_1] = aim_cf,
+                [shot_key_2] = part,
+                [shot_key_3] = shot_offset_cf,
+            }
+        end)
+
+        local old_gun = modules.Gun.StartShooting
+        modules.Gun.StartShooting = LPH_NO_VIRTUALIZE(function(self, ...)
+            local legit_state = states.legit_state.silent_aim
+            local rage_state = states.rage_state.rage_bot
+            local part = states.target_part
+
+            if not self.ClientFighter.IsLocalPlayer or not part then
+                return old_gun(self, ...)
+            end
+
+            local results = { old_gun(self, ...) }
+
+            if results[1] ~= true or results[2] ~= "StartShooting" then
+                return unpack(results)
+            end
+
+            if not legit_state.enabled and not rage_state.enabled then
+                return unpack(results)
+            end
+
+            local root = LocalChar and LocalChar.PrimaryPart
+            if not root then return unpack(results) end
+
+            if rage_state.enabled then
+                results[3] = BuildShotPayload(states.server_cf.Position, part.Position, part)
+                return unpack(results)
+            end
+
+            if math.random(1, 100) > legit_state.hit_chance then
+                return unpack(results)
+            end
+
+            local origin = root.Position
+            local target = part.Position
+
+            if legit_state.manipulation then
+                local offset = GetCachedValidPosition(part) or Vector3.new(0, 5, 5)
+                local fake_cf = part.CFrame * CFrame.new(offset)
+                StartManipulation:Fire(fake_cf)
+                origin = fake_cf.Position
+            end
+
+            results[3] = BuildShotPayload(origin, target, part)
+            return unpack(results)
+        end)
+
+        local old_melee = modules.Melee.StartShooting
+        modules.Melee.StartShooting = LPH_JIT_MAX(function(self, ...)
+            local rage_state = states.rage_state.rage_bot
+            local part = states.target_part
+
+            if not self.ClientFighter.IsLocalPlayer or not part then
+                return old_melee(self, ...)
+            end
+
+            local results = { old_melee(self, ...) }
+
+            if results[1] ~= true or results[2] ~= "StartShooting" then
+                return unpack(results)
+            end
+
+            if not rage_state.enabled then return unpack(results) end
+
+            local root = LocalChar and LocalChar.PrimaryPart
+            if not root then return unpack(results) end
+
+            if rage_state.enabled then
+                results[3] = BuildShotPayload(states.server_cf.Position, part.Position, part)
+                return unpack(results)
+            end
+
+            return unpack(results)
+        end)
+
+        local old_knife = modules.Knife.StartAiming
+        modules.Knife.StartAiming = LPH_JIT_MAX(function(self, ...)
+            local rage_state = states.rage_state.rage_bot
+            local part = states.target_part
+
+            if not self.ClientFighter.IsLocalPlayer or not part then
+                return old_knife(self, ...)
+            end
+
+            local results = { old_knife(self, ...) }
+
+            if results[1] ~= true or results[2] ~= "StartAiming" then
+                return unpack(results)
+            end
+
+            if not rage_state.enabled then return unpack(results) end
+
+            local root = LocalChar and LocalChar.PrimaryPart
+            if not root then return unpack(results) end
+
+            if rage_state.enabled then
+                results[3] = BuildShotPayload(states.server_cf.Position, part.Position, part)
+                return unpack(results)
+            end
+
+            return unpack(results)
+        end)
+    end)
+
+    -- Rage bot
+    states.rage_state.rage_bot.sync_void_state.Parent = nil
+
+    pcall(function()
+        local void_phase = false
+        local last_switch = 0
+        local rage_active = false
+        local last_action_time = 0
+        local entity = modules.ClientEntity
+        local orig_rplfromserv = entity and entity.ReplicateFromServer
+        local orig_hurteffect = entity and entity._HurtEffect
+        local prev = {}
+
+        local rage_hud_frame = Instance.new("Frame")
+        rage_hud_frame.Name = ""
+        rage_hud_frame.Parent = states.screen_gui
+        rage_hud_frame.AnchorPoint = Vector2.new(0.5, 0)
+        rage_hud_frame.BackgroundTransparency = 1
+        rage_hud_frame.ZIndex = 5
+        rage_hud_frame.Size = UDim2.fromOffset(250, 120)
+        rage_hud_frame.Visible = false
+
+        local hud_layout = Instance.new("UIListLayout")
+        hud_layout.Parent = rage_hud_frame
+        hud_layout.SortOrder = Enum.SortOrder.LayoutOrder
+        hud_layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        hud_layout.VerticalAlignment = Enum.VerticalAlignment.Top
+        hud_layout.Padding = UDim.new(0, 2)
+
+        local function CreateHUDText(text, order)
+            local label = Instance.new("TextLabel")
+            label.Name = ""
+            label.Parent = rage_hud_frame
+            label.BackgroundTransparency = 1
+            label.Size = UDim2.new(1, 0, 0, 14)
+            label.Font = Enum.Font.Arial
+            label.TextSize = 14
+            label.TextColor3 = Color3.fromRGB(255, 255, 255)
+            label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+            label.TextStrokeTransparency = 0
+            label.Text = text
+            label.TextXAlignment = Enum.TextXAlignment.Center
+            label.TextYAlignment = Enum.TextYAlignment.Center
+            label.LayoutOrder = order
+            label.ZIndex = 6
+            return label
+        end
+
+        local function ResetVoidState()
+            void_phase = false
+            last_switch = 0
+        end
+
+        local function GetShootCooldown()
+            local fighter = modules.FighterController:GetFighter(player)
+            local equipped_item = fighter and fighter.EquippedItem
+            local info = equipped_item and equipped_item.Info
+            if info and info.ShootCooldown then
+                return math.max(0.02, info.ShootCooldown)
+            end
+            return 0.05
+        end
+
+        local shoot_ready_at = 0
+        local shoot_pending = false
+
+        states.rage_state.rage_bot.sync_void_state.Event:Connect(function()
+            local state = states.rage_state.rage_bot
+            if not state.enabled then
+                ResetVoidState()
+                ServerCFSync()
+            else
+                ResetVoidState()
+                if state.void_spam then
+                    last_switch = tick()
+                end
+            end
+        end)
+
+        local EditServerCF = LPH_JIT_MAX(function(force_hide)
+            local state = states.rage_state.rage_bot
+            if not state.enabled or states.rage_state.pluggwalk.enabled then return end
+
+            local root = LocalChar and LocalChar.PrimaryPart
+            if not root or not root.Parent then return end
+
+            local target = states.target_part
+            if not target then return end
+
+            local target_cf = target.CFrame * CFrame.new(0, 0, 2)
+
+            if not state.void_spam then
+                states.server_cf = target_cf
+                return
+            end
+
+            if force_hide then
+                void_phase = true
+            else
+                local now = tick()
+                local duration = void_phase and state.hide or state.attack
+                if now - last_switch >= duration then
+                    void_phase = not void_phase
+                    last_switch = now
+                end
+            end
+
+            if void_phase then
+                local pos = target_cf.Position
+                local far_pos = Vector3.new(math.random(-10000, 10000), -999999999, math.random(-10000, 10000))
+                states.server_cf = CFrame.new(far_pos) * (target_cf - pos)
+            else
+                states.server_cf = target_cf
+            end
+        end)
+
+        local function HasAmmo(item)
+            if not item then return false end
+            return (item:Get("Ammo") or 0) > 0 or (item:Get("AmmoReserve") or 0) > 0
+        end
+
+        local EquipBestWeapon = LPH_JIT_MAX(function()
+            local state = states.rage_state.rage_bot
+            local fighter = modules.FighterController:GetFighter(player)
+            if not fighter then return end
+
+            local desired_slot
+
+            if state.attack_mode == "Knife" or state.attack_mode == "Melee" then
+                desired_slot = 3
+            else
+                local primary = fighter.Items and fighter.Items[1]
+                local secondary = fighter.Items and fighter.Items[2]
+                if not primary and not secondary then return end
+
+                if state.preferred == "Secondary" then
+                    if HasAmmo(secondary) then
+                        desired_slot = 2
+                    elseif HasAmmo(primary) then
+                        desired_slot = 1
+                    end
+                else
+                    if HasAmmo(primary) then
+                        desired_slot = 1
+                    elseif HasAmmo(secondary) then
+                        desired_slot = 2
+                    end
+                end
+            end
+
+            if not desired_slot then return end
+
+            if fighter.Items[desired_slot] and not fighter.Items[desired_slot].IsEquipped then
+                fighter:EquipItem(desired_slot)
+            end
+        end)
+
+        local function StartRage()
+            rage_active = true
+        end
+
+        local function FinishRage()
+            rage_active = false
+            last_action_time = 0
+            shoot_pending = false
+            shoot_ready_at = 0
+            modules.MechanicsController:EquippedItemInput("FinishShooting")
+            ResetVoidState()
+            ServerCFSync()
+        end
+
+        local rage_status = CreateHUDText("rage bot: idle", 1)
+        local rage_target = CreateHUDText("target: none", 2)
+
+        local UpdateRageHUD = LPH_NO_VIRTUALIZE(function()
+            local state = states.rage_state.rage_bot
+            local center_screen = Workspace.CurrentCamera.ViewportSize / 2
+            rage_hud_frame.Visible = state.enabled and state.rage_hud
+            rage_hud_frame.Position = UDim2.fromOffset(center_screen.X, center_screen.Y + 25)
+
+            if states.is_reloading then
+                rage_status.Text = "rage bot: reloading"
+            elseif void_phase then
+                rage_status.Text = "rage bot: void"
+            elseif shoot_pending or (state.attack_mode == "Knife" and modules.MechanicsController:IsAiming()) then
+                rage_status.Text = "rage bot: shoot"
+            else
+                rage_status.Text = "rage bot: idle"
+            end
+
+            local target = states.target
+            if target == nil then
+                rage_target.Text = "target: none"
+            else
+                rage_target.Text = "target: " .. target.Name
+            end
+        end)
+
+        RunService.RenderStepped:Connect(LPH_NO_VIRTUALIZE(function()
+            UpdateRageHUD()
+            pcall(setthreadidentity, 2)
+            local state = states.rage_state.rage_bot
+            if not state.enabled then
+                if rage_active then FinishRage() end
+                pcall(setthreadidentity, 8)
+                return
+            end
+
+            if states.rage_state.pluggwalk.enabled then
+                if rage_active then FinishRage() end
+                pcall(setthreadidentity, 8)
+                return
+            end
+
+            local root = LocalChar and LocalChar.PrimaryPart
+            if not root then
+                if rage_active then FinishRage() end
+                pcall(setthreadidentity, 8)
+                return
+            end
+
+            local can_attack = states.target_part and not states.is_reloading
+            if not can_attack then
+                shoot_pending = false
+                shoot_ready_at = 0
+                modules.MechanicsController:EquippedItemInput("FinishShooting")
+                if state.void_spam then
+                    ServerCFDesync()
+                    EditServerCF(true)
+                else
+                    ServerCFSync()
+                end
+                pcall(setthreadidentity, 8)
+                return
+            else
+                ServerCFDesync()
+                EquipBestWeapon()
+                EditServerCF()
+            end
+
+            if not rage_active then StartRage() end
+
+            local now = os.clock()
+            if not void_phase then
+                if not shoot_pending then
+                    if now - last_action_time >= GetShootCooldown() then
+                        local ping_delay = player:GetNetworkPing()
+                        shoot_ready_at = now + math.max(0.03, ping_delay)
+                        shoot_pending = true
+                    end
+                else
+                    if now >= shoot_ready_at then
+                        last_action_time = now
+                        shoot_pending = false
+                        for _ = 1, state.shoot_attempts do
+                            local action = (state.attack_mode == "Knife") and "StartAiming" or "StartShooting"
+                            modules.MechanicsController:EquippedItemInput(action)
+                        end
+                    end
+                end
+            end
+
+            pcall(setthreadidentity, 8)
+        end))
+
+        local notify_bindable = Instance.new("BindableEvent")
+        notify_bindable.Parent = nil
+
+        notify_bindable.Event:Connect(function(name, dmg)
+            Library:Notify(("Hit %s for %.1f"):format(name, dmg), 5)
+        end)
+
+        local FireHitNotification = LPH_JIT_MAX(function(obj)
+            if not obj or not obj.Model then return end
+            local hum = obj.Model:FindFirstChildOfClass("Humanoid")
+            if not hum then return end
+
+            local previous = prev[obj]
+            if previous == nil then
+                prev[obj] = hum.Health
+                return
+            end
+
+            task.defer(function()
+                if not hum.Parent then return end
+                local new_health = hum.Health
+                local damage = previous - new_health
+                prev[obj] = new_health
+                if damage <= 0 then return end
+                if not (states.rage_state.rage_bot.enabled and states.rage_state.rage_bot.hit_notifications and states.target and states.target.Name == obj.Model.Name) then
+                    return
+                end
+                notify_bindable:Fire(obj.Model.Name, damage)
+            end)
+        end)
+
+        if entity then
+            entity._HurtEffect = function(self, ...)
+                FireHitNotification(self)
+                return orig_hurteffect and orig_hurteffect(self, ...) or nil
+            end
+            entity.ReplicateFromServer = function(self, enum, ...)
+                if enum == "Died" then prev[self] = nil end
+                return orig_rplfromserv and orig_rplfromserv(self, enum, ...) or nil
+            end
+        end
+    end)
+
+    -- Anti aim
+    pcall(function()
+        local StrongRandom = LPH_JIT_MAX(function(min, max, entropy)
+            local seed = (os.clock() * 1e9 + tick() * 1e6 + math.random(1, 1e9) + (entropy or 0) * 1337)
+            seed = math.abs(math.sin(seed) * 1e14)
+            local rng = Random.new(seed % 2^31)
+            return rng:NextNumber(min, max)
+        end)
+
+        local RandomAngle = LPH_JIT_MAX(function(min, max, entropy)
+            return math.rad(StrongRandom(min, max, entropy))
+        end)
+
+        local spin_angle = 0
+        local jitter_angle = 0
+        local last_jitter = 0
+
+        local pitch_handlers = {
+            Offset = function(state)
+                return math.rad(state.pitch_angle)
+            end,
+            Custom = function(state)
+                return math.rad(state.pitch_angle)
+            end,
+            Random = function(state)
+                return RandomAngle(-89, 89, state.pitch_angle)
+            end,
+            ["Look Up"] = function()
+                return math.rad(-89)
+            end,
+            ["Look Down"] = function()
+                return math.rad(89)
+            end,
+        }
+
+        local yaw_handlers = {
+            Offset = function(state)
+                return math.rad(state.yaw_angle)
+            end,
+            Custom = function(state)
+                return math.rad(state.yaw_angle)
+            end,
+            Random = function(state)
+                return RandomAngle(-180, 180, state.yaw_angle)
+            end,
+            Spin = function(state)
+                spin_angle += math.rad(state.speed)
+                if spin_angle >= math.pi * 2 then
+                    spin_angle -= math.pi * 2
+                end
+                return spin_angle
+            end,
+            Jitter = function(state)
+                local now = tick()
+                local interval = 1 / math.max(state.speed, 1)
+                if now - last_jitter >= interval then
+                    last_jitter = now
+                    jitter_angle = math.rad(StrongRandom(-state.jitter_angle, state.jitter_angle, jitter_angle))
+                end
+                return jitter_angle
+            end,
+            Backwards = function()
+                return math.pi
+            end,
+        }
+
+        local rayparams = RaycastParams.new()
+        rayparams.FilterType = Enum.RaycastFilterType.Exclude
+
+        local floor_cache_pos
+        local floor_cache_cf
+        local floor_cache_time = 0
+        local floor_cache_ttl = 0.2
+
+        local GetFloorBelow = LPH_NO_VIRTUALIZE(function(pos)
+            local now = os.clock()
+            if floor_cache_cf and floor_cache_pos and (floor_cache_pos - pos).Magnitude < 3 and (now - floor_cache_time) < floor_cache_ttl then
+                return floor_cache_cf
+            end
+            local ray_origin = pos
+            local ray_dir = Vector3.new(0, -500, 0)
+            rayparams.FilterDescendantsInstances = { LocalChar }
+            local result = Workspace:Raycast(ray_origin, ray_dir, rayparams)
+            local cf = nil
+            if result then
+                cf = CFrame.new(Vector3.new(pos.X, result.Position.Y - 2, pos.Z))
+            end
+            floor_cache_pos = pos
+            floor_cache_cf = cf
+            floor_cache_time = now
+            return cf
+        end)
+
+        local GetFakeRot = LPH_JIT_MAX(function(vec)
+            local state = states.rage_state.anti_aim
+            if not state.enabled then return vec end
+
+            local pitch_func = pitch_handlers[state.pitch]
+            local yaw_func = yaw_handlers[state.yaw]
+
+            if pitch_func then
+                vec = Vector2.new(pitch_func(state), vec.Y)
+            end
+            if yaw_func then
+                vec = Vector2.new(vec.X, vec.Y + yaw_func(state))
+            end
+
+            return vec
+        end)
+
+        local orig = modules.Utility.EncodeCameraRotation
+        modules.Utility.EncodeCameraRotation = LPH_JIT_MAX(function(self, vec)
+            local fake_rot = GetFakeRot(vec)
+            local root = LocalChar and LocalChar.PrimaryPart
+            if root then
+                root.CFrame = root.CFrame * CFrame.Angles(fake_rot.X, fake_rot.Y, math.rad(root.CFrame.Rotation.Z))
+            end
+            return orig(self, fake_rot)
+        end)
+
+        RunService.Heartbeat:Connect(LPH_NO_VIRTUALIZE(function()
+            if not states.rage_state.anti_aim.enabled or states.rage_state.pluggwalk.enabled or states.rage_state.rage_bot.void_spam then
+                return
+            end
+            if not states.rage_state.anti_aim.underground then return end
+
+            local root = LocalChar and LocalChar.PrimaryPart
+            if not root or not root.Parent then return end
+
+            local cf = root.CFrame
+            if not cf then return end
+
+            local pos = cf.Position
+            local floor_cf = GetFloorBelow(pos)
+            if not floor_cf then return end
+
+            root.CFrame = floor_cf
+        end))
+    end)
+end)
+
+--  TAB - ESP
+--  TAB - ESP
+-- --------------------------------------------------------------------
+--  TAB - ESP
+-- --------------------------------------------------------------------
 local GEspHealth = Tabs.ESP:AddLeftGroupbox('Health')
 local GTracer    = Tabs.ESP:AddRightGroupbox('Tracer / Snapline')
 local GChams     = Tabs.ESP:AddRightGroupbox('Chams')
@@ -4898,97 +6551,401 @@ GRainbow:AddDropdown('RainbowParts', { Text = 'Rainbow Parts', Values = {'All','
 -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 --  TAB â€” AIMBOT
 -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-local AimbotGroup  = Tabs.Aimbot:AddLeftGroupbox('Aim Assist')
+local SilentGroup  = Tabs.Aimbot:AddLeftGroupbox('Silent Aim')
 local TriggerGroup = Tabs.Aimbot:AddRightGroupbox('Triggerbot')
+local TargetGroup  = Tabs.Aimbot:AddLeftGroupbox('Targeting')
 
--- Aim Assist (Left)
-AimbotGroup:AddToggle('AimbotEnabled', {
-    Text    = 'Enable Aimbot',
+-- Silent Aim (Left)
+SilentGroup:AddToggle('SilentAimEnabled', {
+    Text    = 'Enable Silent Aim',
     Default = false,
-    Tooltip = 'Smoothly moves your mouse toward the nearest enemy inside the FOV',
+    Tooltip = 'Redirects the shot direction to the acquired target',
 })
-
-AimbotGroup:AddSlider('AimbotFOV', {
-    Text     = 'Aimbot FOV',
-    Default  = 90,
-    Min      = 1,
-    Max      = 180,
-    Rounding = 0,
-    Suffix   = 'deg',
-    Tooltip  = 'Max on-screen angle (in degrees) used to pick a target',
-})
-
-AimbotGroup:AddSlider('AimbotSmooth', {
-    Text     = 'Smoothness',
-    Default  = 10,
-    Min      = 1,
-    Max      = 50,
-    Rounding = 0,
-    Tooltip  = 'Max pixels moved per frame. 1 = slow, 50 = instant snap',
-})
-
-AimbotGroup:AddDropdown('AimbotPriority', {
-    Text    = 'Aimbot Priority',
-    Values  = { 'Head', 'Body', 'Nearest' },
-    Default = 'Nearest',
-    Multi   = false,
-    Tooltip = 'Which part to aim at: Head, Body, or whatever is closest to the crosshair',
-})
-
-AimbotGroup:AddLabel('Aimbot Keybind')
-    :AddKeyPicker('AimbotKey', {
-        Default = 'MB2',
+    :AddKeyPicker('SilentAimKey', {
+        Default = 'X',
         NoUI    = false,
-        Text    = 'Hold to aim',
-        Mode    = 'Hold',
+        Text    = 'Silent Aim',
+        Mode    = 'Toggle',
+        SyncToggleState = true,
+        Callback = function()
+            Library:Notify(Toggles.SilentAimEnabled.Value and 'Silent Aim Enabled' or 'Silent Aim Disabled', 5)
+        end,
     })
 
-AimbotGroup:AddToggle('SilentAim', {
-    Text    = 'Silent Aim',
-    Default = false,
-    Tooltip = 'Redirects Mouse.Hit to the target while the aim key is held',
+SilentGroup:AddSlider('SilentHitChance', {
+    Text     = 'Hit Chance',
+    Default  = 100,
+    Min      = 0,
+    Max      = 100,
+    Rounding = 0,
+    Suffix   = '%',
+    Tooltip  = 'Chance each shot gets redirected',
 })
 
-AimbotGroup:AddDropdown('SilentAimHitbox', {
-    Text    = 'Silent Aim Hitbox',
-    Values  = { 'Head', 'Body' },
-    Default = 'Head',
-    Multi   = false,
-    Tooltip = 'Which part silent aim redirects bullets toward',
+SilentGroup:AddToggle('SilentManipulation', {
+    Text    = 'Manipulation',
+    Default = false,
+    Tooltip = 'Puts you in a valid spot behind the target while shooting',
+})
+SilentGroup:AddToggle('SilentVisualize', {
+    Text    = 'Visualize',
+    Default = false,
+    Tooltip = 'Shows a neon marker where manipulation puts you',
 })
 
 -- Triggerbot (Right)
 TriggerGroup:AddToggle('TriggerbotEnabled', {
     Text    = 'Enable Triggerbot',
     Default = false,
-    Tooltip = 'Automatically fires when your crosshair is over an enemy',
+    Tooltip = 'Automatically fires once a target is locked',
 })
+    :AddKeyPicker('TriggerbotKey', {
+        Default = 'Q',
+        NoUI    = false,
+        Text    = 'Triggerbot',
+        Mode    = 'Toggle',
+        SyncToggleState = true,
+        Callback = function()
+            Library:Notify(Toggles.TriggerbotEnabled.Value and 'Triggerbot Enabled' or 'Triggerbot Disabled', 5)
+        end,
+    })
 
 TriggerGroup:AddSlider('TriggerbotDelay', {
-    Text     = 'Trigger Delay',
+    Text     = 'Shoot Delay',
+    Default  = 0,
+    Min      = 0,
+    Max      = 300,
+    Rounding = 0,
+    Suffix   = 'ms',
+    Tooltip  = 'Delay between locking a target and firing',
+})
+
+TriggerGroup:AddDropdown('TriggerbotScoped', {
+    Text    = 'Check Scoped',
+    Values  = kCheckScoped,
+    Default = { 'Sniper', 'Crossbow' },
+    Multi   = true,
+    Tooltip = 'Weapons that must be fully scoped before the triggerbot fires',
+})
+
+-- Targeting (Left)
+TargetGroup:AddDropdown('TargetGroup', {
+    Text    = 'Target Group',
+    Values  = kTargetList,
+    Default = 'Visible',
+    Multi   = false,
+    Tooltip = 'Visible = any on-screen target, FOV = must be inside the FOV circle',
+})
+
+TargetGroup:AddDropdown('TargetIgnore', {
+    Text    = 'Ignore',
+    Values  = kGunIgnoreList,
+    Default = { 'None' },
+    Multi   = true,
+    Tooltip = 'Defences / weapons to skip while acquiring targets',
+})
+
+TargetGroup:AddSlider('TargetRadius', {
+    Text     = 'Radius',
     Default  = 100,
     Min      = 0,
     Max      = 500,
     Rounding = 0,
+    Tooltip  = 'FOV circle radius in screen pixels',
+})
+
+TargetGroup:AddSlider('TargetMaxDistance', {
+    Text     = 'Max Distance',
+    Default  = 150,
+    Min      = 50,
+    Max      = 1000,
+    Rounding = 0,
+})
+
+TargetGroup:AddSlider('TargetWeightRatio', {
+    Text     = 'Weight Ratio',
+    Default  = 0.7,
+    Min      = 0,
+    Max      = 1,
+    Rounding = 1,
+    Tooltip  = '0 = distance only, 1 = on-screen distance only',
+})
+
+TargetGroup:AddSlider('TargetReactionTime', {
+    Text     = 'Reaction Time',
+    Default  = 0,
+    Min      = 0,
+    Max      = 300,
+    Rounding = 0,
     Suffix   = 'ms',
-    Tooltip  = 'Reaction delay between crosshair contact and firing',
 })
 
-TriggerGroup:AddDropdown('TriggerbotHitbox', {
-    Text    = 'Triggerbot Hitbox',
-    Values  = { 'Head', 'Body' },
-    Default = 'Head',
+TargetGroup:AddSlider('TargetForgetTime', {
+    Text     = 'Forget Time',
+    Default  = 1,
+    Min      = 0,
+    Max      = 10,
+    Rounding = 1,
+    Suffix   = 's',
+    Tooltip  = 'How long before a lost target is dropped',
+})
+
+TargetGroup:AddDropdown('TargetPart', {
+    Text    = 'Target',
+    Values  = { 'Closest Part', 'Head', 'HumanoidRootPart', 'UpperTorso', 'LowerTorso', 'LeftFoot', 'LeftLowerLeg', 'LeftUpperLeg', 'RightFoot', 'RightLowerLeg', 'RightUpperLeg', 'LeftHand', 'LeftLowerArm', 'LeftUpperArm', 'RightHand', 'RightLowerArm', 'RightUpperArm' },
+    Default = 'Closest Part',
     Multi   = false,
-    Tooltip  = 'Which part must be under the crosshair to trigger',
 })
 
-TriggerGroup:AddLabel('Triggerbot Keybind')
-    :AddKeyPicker('TriggerbotKey', {
-        Default = 'Q',
+TargetGroup:AddDropdown('TargetIncludeParts', {
+    Text    = 'Include Parts',
+    Values  = kBodyParts,
+    Default = { 'Head', 'UpperTorso' },
+    Multi   = true,
+    Tooltip = 'Parts considered when targeting the closest part',
+})
+
+TargetGroup:AddToggle('TargetWallcheck', {
+    Text    = 'Wallcheck',
+    Default = true,
+    Tooltip = 'Skips targets blocked by walls',
+})
+TargetGroup:AddToggle('TargetShowFOV', {
+    Text    = 'Show FOV',
+    Default = false,
+    Tooltip = 'Draws the FOV circle on screen',
+})
+TargetGroup:AddToggle('FovOutline', {
+    Text    = 'FOV Outline',
+    Default = false,
+})
+TargetGroup:AddToggle('FovFill', {
+    Text    = 'FOV Fill',
+    Default = false,
+})
+TargetGroup:AddSlider('FovLerp', {
+    Text     = 'FOV Lerp',
+    Default  = 1,
+    Min      = 0.1,
+    Max      = 1,
+    Rounding = 2,
+})
+
+-- =====================================================
+--  TAB - RAGEBOT  (Rage Bot / Weapon Mods / Anti Aim)
+-- =====================================================
+local RageBotGroup = Tabs.Ragebot:AddLeftGroupbox('Rage Bot')
+local WeaponMods   = Tabs.Ragebot:AddRightGroupbox('Weapon Mods')
+local AntiAimGroup = Tabs.Ragebot:AddLeftGroupbox('Anti Aim')
+
+-- Rage Bot (Left)
+RageBotGroup:AddToggle('RageBotEnabled', {
+    Text    = 'Enable Rage Bot',
+    Default = false,
+    Tooltip = 'Auto-locks and fires at the acquired target',
+})
+    :AddKeyPicker('RageBotKey', {
+        Default = 'F',
         NoUI    = false,
-        Text    = 'Hold to trigger',
-        Mode    = 'Hold',
+        Text    = 'Rage Bot',
+        Mode    = 'Toggle',
+        SyncToggleState = true,
+        Callback = function()
+            Library:Notify(Toggles.RageBotEnabled.Value and 'Rage Bot Enabled' or 'Rage Bot Disabled', 5)
+        end,
     })
+
+RageBotGroup:AddToggle('RageVoidSpam', {
+    Text    = 'Void Spam',
+    Default = false,
+    Tooltip = 'Drops you far below the map while hiding (OOB exploit)',
+})
+
+RageBotGroup:AddSlider('RageHide', {
+    Text     = 'Hide',
+    Default  = 0.25,
+    Min      = 0.01,
+    Max      = 1,
+    Rounding = 2,
+    Tooltip  = 'How long you stay hidden (void) per cycle',
+})
+
+RageBotGroup:AddSlider('RageAttack', {
+    Text     = 'Attack',
+    Default  = 0.1,
+    Min      = 0.01,
+    Max      = 1,
+    Rounding = 2,
+    Tooltip  = 'How long you are visible (shooting) per cycle',
+})
+
+RageBotGroup:AddSlider('RageShootAttempts', {
+    Text     = 'Shoot Attempts',
+    Default  = 1,
+    Min      = 1,
+    Max      = 2,
+    Rounding = 0,
+})
+
+RageBotGroup:AddDropdown('RageAttackMode', {
+    Text    = 'Attack Mode',
+    Values  = { 'Gun', 'Knife', 'Melee' },
+    Default = 'Gun',
+    Multi   = false,
+})
+
+RageBotGroup:AddDropdown('RagePreferred', {
+    Text    = 'Preferred',
+    Values  = { 'Primary', 'Secondary' },
+    Default = 'Primary',
+    Multi   = false,
+})
+
+RageBotGroup:AddToggle('RageHitNotifications', {
+    Text    = 'Hit Notifications',
+    Default = true,
+})
+RageBotGroup:AddToggle('RageHUD', {
+    Text    = 'Rage HUD',
+    Default = true,
+    Tooltip = 'Shows rage status and the current target',
+})
+
+-- Weapon Mods (Right)
+WeaponMods:AddToggle('RageNoRecoil', {
+    Text    = 'No Recoil',
+    Default = false,
+})
+WeaponMods:AddToggle('RageNoSpread', {
+    Text    = 'No Spread',
+    Default = false,
+})
+WeaponMods:AddToggle('RageFullAuto', {
+    Text    = 'Full Auto',
+    Default = false,
+    Tooltip = 'Removes the semi-auto fire delay',
+})
+WeaponMods:AddSlider('RageFirerate', {
+    Text     = 'Firerate',
+    Default  = 100,
+    Min      = 10,
+    Max      = 100,
+    Rounding = 0,
+    Suffix   = '%',
+})
+
+-- Anti Aim (Left)
+AntiAimGroup:AddToggle('AntiAimEnabled', {
+    Text    = 'Enable Anti Aim',
+    Default = false,
+    Tooltip = 'Fakes your camera rotation to other players',
+})
+    :AddKeyPicker('AntiAimKey', {
+        Default = 'G',
+        NoUI    = false,
+        Text    = 'Anti Aim',
+        Mode    = 'Toggle',
+        SyncToggleState = true,
+        Callback = function()
+            Library:Notify(Toggles.AntiAimEnabled.Value and 'Anti Aim Enabled' or 'Anti Aim Disabled', 5)
+        end,
+    })
+
+AntiAimGroup:AddDropdown('AntiAimPitch', {
+    Text    = 'Pitch',
+    Values  = kPitchOptions,
+    Default = 'None',
+    Multi   = false,
+})
+AntiAimGroup:AddSlider('AntiAimPitchAngle', {
+    Text     = 'Pitch Angle',
+    Default  = 0,
+    Min      = -180,
+    Max      = 180,
+    Rounding = 0,
+})
+AntiAimGroup:AddDropdown('AntiAimYaw', {
+    Text    = 'Yaw',
+    Values  = kYawOptions,
+    Default = 'None',
+    Multi   = false,
+})
+AntiAimGroup:AddSlider('AntiAimYawAngle', {
+    Text     = 'Yaw Angle',
+    Default  = 0,
+    Min      = -180,
+    Max      = 180,
+    Rounding = 0,
+})
+AntiAimGroup:AddSlider('AntiAimJitterAngle', {
+    Text     = 'Jitter Angle',
+    Default  = 20,
+    Min      = -180,
+    Max      = 180,
+    Rounding = 0,
+})
+AntiAimGroup:AddSlider('AntiAimSpeed', {
+    Text     = 'Spin/Jitter Speed',
+    Default  = 10,
+    Min      = 1,
+    Max      = 100,
+    Rounding = 0,
+})
+AntiAimGroup:AddToggle('AntiAimUnderground', {
+    Text    = 'Underground',
+    Default = false,
+    Tooltip = 'Snaps you below the floor while anti-aim is on',
+})
+
+-- ---- Aimbot wiring ----
+Toggles.SilentAimEnabled:OnChanged(function(v) SetSilentAimEnabled(v) end)
+Toggles.SilentManipulation:OnChanged(function(v) states.legit_state.silent_aim.manipulation = v end)
+Toggles.SilentVisualize:OnChanged(function(v) states.legit_state.silent_aim.visualize = v end)
+Options.SilentHitChance:OnChanged(function(v) states.legit_state.silent_aim.hit_chance = v end)
+
+Toggles.TriggerbotEnabled:OnChanged(function(v) SetTriggerbotEnabled(v) end)
+Options.TriggerbotDelay:OnChanged(function(v) states.legit_state.triggerbot.shoot_delay = v end)
+Options.TriggerbotScoped:OnChanged(function(v) states.legit_state.triggerbot.check_scoped = multiToList(v) end)
+
+Options.TargetGroup:OnChanged(function(v) states.targeting_state.target_group = v end)
+Options.TargetIgnore:OnChanged(function(v) states.targeting_state.ignore = multiToList(v) end)
+Options.TargetRadius:OnChanged(function(v) states.targeting_state.radius = v end)
+Options.TargetMaxDistance:OnChanged(function(v) states.targeting_state.max_distance = v end)
+Options.TargetWeightRatio:OnChanged(function(v) states.targeting_state.weight_ratio = v end)
+Options.TargetReactionTime:OnChanged(function(v) states.targeting_state.reaction_time = v end)
+Options.TargetForgetTime:OnChanged(function(v) states.targeting_state.forget_time = v end)
+Options.TargetPart:OnChanged(function(v) states.targeting_state.target = v end)
+Options.TargetIncludeParts:OnChanged(function(v) states.targeting_state.include_parts = multiToList(v) end)
+Toggles.TargetWallcheck:OnChanged(function(v) states.targeting_state.wallcheck = v end)
+Toggles.TargetShowFOV:OnChanged(function(v) states.targeting_state.show_fov = v end)
+Toggles.FovOutline:OnChanged(function(v) states.targeting_state.fov_outline = v end)
+Toggles.FovFill:OnChanged(function(v) states.targeting_state.fov_fill = v end)
+Options.FovLerp:OnChanged(function(v) states.targeting_state.fov_lerp = v end)
+
+-- ---- Ragebot wiring ----
+Toggles.RageBotEnabled:OnChanged(function(v) SetRageBotEnabled(v) end)
+Toggles.RageVoidSpam:OnChanged(function(v) SetVoidSpamEnabled(v) end)
+Options.RageHide:OnChanged(function(v) states.rage_state.rage_bot.hide = v end)
+Options.RageAttack:OnChanged(function(v) states.rage_state.rage_bot.attack = v end)
+Options.RageShootAttempts:OnChanged(function(v) states.rage_state.rage_bot.shoot_attempts = v end)
+Options.RageAttackMode:OnChanged(function(v) states.rage_state.rage_bot.attack_mode = v end)
+Options.RagePreferred:OnChanged(function(v) states.rage_state.rage_bot.preferred = v end)
+Toggles.RageHitNotifications:OnChanged(function(v) states.rage_state.rage_bot.hit_notifications = v end)
+Toggles.RageHUD:OnChanged(function(v) states.rage_state.rage_bot.rage_hud = v end)
+
+Toggles.RageNoRecoil:OnChanged(function(v) states.rage_state.weapons.no_recoil = v end)
+Toggles.RageNoSpread:OnChanged(function(v) states.rage_state.weapons.no_spread = v end)
+Toggles.RageFullAuto:OnChanged(function(v) states.rage_state.weapons.full_auto = v end)
+Options.RageFirerate:OnChanged(function(v) states.rage_state.weapons.firerate = v end)
+
+Toggles.AntiAimEnabled:OnChanged(function(v) SetAntiAimEnabled(v) end)
+Options.AntiAimPitch:OnChanged(function(v) states.rage_state.anti_aim.pitch = v end)
+Options.AntiAimPitchAngle:OnChanged(function(v) states.rage_state.anti_aim.pitch_angle = v end)
+Options.AntiAimYaw:OnChanged(function(v) states.rage_state.anti_aim.yaw = v end)
+Options.AntiAimYawAngle:OnChanged(function(v) states.rage_state.anti_aim.yaw_angle = v end)
+Options.AntiAimJitterAngle:OnChanged(function(v) states.rage_state.anti_aim.jitter_angle = v end)
+Options.AntiAimSpeed:OnChanged(function(v) states.rage_state.anti_aim.speed = v end)
+Toggles.AntiAimUnderground:OnChanged(function(v) states.rage_state.anti_aim.underground = v end)
 -- ══════════════════════════════════════════
 --  TAB — WEAPON  (gun mods)
 -- ══════════════════════════════════════════
@@ -5265,208 +7222,6 @@ player.CharacterAdded:Connect(function()
     setupWeaponHook()
 end)
 
-
--- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
---  AIMBOT CORE
--- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-
--- Resolves hitpart name for both R6 and R15 rigs
-local HITPART_FALLBACKS = {
-    Head            = { "Head" },
-    UpperTorso      = { "UpperTorso", "Torso" },
-    LowerTorso      = { "LowerTorso", "Torso" },
-    HumanoidRootPart= { "HumanoidRootPart" },
-}
-
-local function resolveHitpart(char, name)
-    if not char then return nil end
-    local tries = HITPART_FALLBACKS[name] or { name, "HumanoidRootPart" }
-    for _, n in ipairs(tries) do
-        local p = char:FindFirstChild(n)
-        if p and p:IsA("BasePart") then return p end
-    end
-    return char:FindFirstChild("HumanoidRootPart")
-end
-
--- Whether two players are on the same team
-local function sameTeam(a, b)
-    return a.Team ~= nil and b.Team ~= nil and a.Team == b.Team
-end
-
--- Convert an FOV angle (degrees) into on-screen pixels
-local function fovToPixels(deg)
-    return (deg or 90) * 6
-end
-
--- Pick the part to aim at based on priority (Head / Body / Nearest)
-local function priorityPart(char, priority, cam)
-    if priority == 'Head' then return resolveHitpart(char, 'Head') end
-    if priority == 'Body' then return resolveHitpart(char, 'UpperTorso') end
-    local centre = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
-    local function screenDist(p)
-        if not p then return math.huge end
-        local v, on = cam:WorldToViewportPoint(p.Position)
-        if not on or v.Z <= 0 then return math.huge end
-        return (Vector2.new(v.X, v.Y) - centre).Magnitude
-    end
-    local head = resolveHitpart(char, 'Head')
-    local body = resolveHitpart(char, 'UpperTorso')
-    return screenDist(head) <= screenDist(body) and head or body
-end
-
--- Find the nearest enemy within fovPx pixels of the crosshair.
--- Returns (player, part, screenDistance) or (nil, nil, fovPx).
-local function GetAimTarget(fovPx, priority)
-    local cam = workspace.CurrentCamera
-    if not cam then return nil, nil, fovPx end
-
-    local centre = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
-    local best, bestPart, bestDist = nil, nil, fovPx
-
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p == player then continue end
-        if sameTeam(player, p) then continue end
-
-        local char = p.Character
-        local hum  = char and char:FindFirstChildOfClass('Humanoid')
-        if not (char and hum and hum.Health > 0) then continue end
-
-        local part = priorityPart(char, priority, cam)
-        if not part then continue end
-
-        local v, on = cam:WorldToViewportPoint(part.Position)
-        if not on or v.Z <= 0 then continue end
-
-        local d = (Vector2.new(v.X, v.Y) - centre).Magnitude
-        if d < bestDist then
-            bestDist = d
-            best     = p
-            bestPart = part
-        end
-    end
-
-    return best, bestPart, bestDist
-end
-
--- FOV Circle Drawing
-local fovCircle = Drawing.new('Circle')
-fovCircle.Thickness    = 1
-fovCircle.NumSides     = 128
-fovCircle.Radius       = 150
-fovCircle.Filled       = false
-fovCircle.Visible      = false
-fovCircle.Color        = Color3.fromRGB(255, 255, 255)
-fovCircle.Transparency = 1
-
--- Silent Aim state. Set every frame by aimConn, read by the metatable hook.
-local silentPart = nil
-
--- Metatable hook for Mouse.Hit / Mouse.UnitRay redirection.
--- Wrapped in pcall so it degrades gracefully on executors that block it.
-local _saHookOk = pcall(function()
-    local mt       = getrawmetatable(game)
-    local oldIndex = mt.__index
-
-    setreadonly(mt, false)
-    mt.__index = newcclosure(function(self, key)
-        if TG('SilentAim') and silentPart then
-            local mouse = player:GetMouse()
-            if self == mouse then
-                if key == 'Hit' then
-                    return CFrame.new(silentPart.Position)
-                elseif key == 'UnitRay' then
-                    local cam = workspace.CurrentCamera
-                    if cam then
-                        local pos  = silentPart.Position
-                        local orig = cam.CFrame.Position
-                        local dir  = (pos - orig).Unit
-                        return Ray.new(orig, dir * 1000)
-                    end
-                end
-            end
-        end
-        return oldIndex(self, key)
-    end)
-    setreadonly(mt, true)
-end)
-
-if not _saHookOk then
-    warn('[VoidSpam] Silent aim metatable hook failed - executor may not support it.')
-end
-
--- Aimbot / Silent Aim / Triggerbot RenderStepped
-local triggerArmed = 0
-local triggerTimer = 0
-
-local aimConn = RunService.RenderStepped:Connect(function()
-    local cam = workspace.CurrentCamera
-    if not cam then return end
-
-    local centre   = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
-    local aimKey   = Options.AimbotKey and Options.AimbotKey:GetState() or false
-    local aimFOVPx = fovToPixels(SL('AimbotFOV'))
-
-    -- FOV circle
-    local showCircle = TG('AimbotEnabled') or TG('SilentAim')
-    fovCircle.Visible = showCircle
-    if showCircle then
-        fovCircle.Radius   = aimFOVPx
-        fovCircle.Position = centre
-    end
-
-    -- Silent aim target update (active while the aim key is held)
-    silentPart = nil
-    if TG('SilentAim') and aimKey then
-        local hitbox = Options.SilentAimHitbox and Options.SilentAimHitbox.Value or 'Head'
-        local _, part = GetAimTarget(aimFOVPx, hitbox)
-        silentPart = part
-    end
-
-    -- Visible aimbot: nudge the mouse toward the target
-    if TG('AimbotEnabled') and aimKey then
-        local prio = Options.AimbotPriority and Options.AimbotPriority.Value or 'Nearest'
-        local _, part = GetAimTarget(aimFOVPx, prio)
-        if part then
-            local v, on = cam:WorldToViewportPoint(part.Position)
-            if on and v.Z > 0 then
-                local offset  = Vector2.new(v.X, v.Y) - centre
-                local maxMove = math.max(SL('AimbotSmooth'), 1)
-                if mousemoverel then
-                    mousemoverel(
-                        math.clamp(offset.X, -maxMove, maxMove),
-                        math.clamp(offset.Y, -maxMove, maxMove)
-                    )
-                end
-            end
-        end
-    end
-
-    -- Triggerbot: fire once per crosshair contact after the delay
-    if TG('TriggerbotEnabled') then
-        local trgKey = Options.TriggerbotKey and Options.TriggerbotKey:GetState() or false
-        if trgKey then
-            local hitbox = Options.TriggerbotHitbox and Options.TriggerbotHitbox.Value or 'Head'
-            local plr, _ = GetAimTarget(12, hitbox)
-            local now    = tick()
-            if plr and triggerArmed == 0 then
-                triggerArmed = 1
-                triggerTimer = now
-            end
-            if triggerArmed == 1 and (now - triggerTimer) >= (SL('TriggerbotDelay') / 1000) then
-                if mouse1press and mouse1release then
-                    mouse1press()
-                    mouse1release()
-                end
-                triggerArmed = 2
-            end
-            if not plr then triggerArmed = 0 end
-        else
-            triggerArmed = 0
-        end
-    else
-        triggerArmed = 0
-    end
-end)
 
 -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 --  FULLBRIGHT
@@ -5972,13 +7727,12 @@ Library:OnUnload(function()
     pcall(applyFullbright, false)
     pcall(applyFov, false, 70)
     if espConn  then espConn:Disconnect()  end
-    if aimConn  then aimConn:Disconnect()  end
     if moveConn then moveConn:Disconnect() end
     pcall(applyNoclip, false)
     stopFlyBV()
-    fovCircle.Visible = false
-    fovCircle:Remove()
-    silentPart = nil
+    if states and states.screen_gui then
+        pcall(function() states.screen_gui:Destroy() end)
+    end
     if gunFallbackConn then gunFallbackConn:Disconnect() gunFallbackConn = nil end
     local uc   = player.Character
     local uhrp = uc and uc:FindFirstChild('HumanoidRootPart')
