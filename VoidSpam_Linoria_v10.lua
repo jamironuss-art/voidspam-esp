@@ -5133,43 +5133,30 @@ task.spawn(function()
     local function ServerCFDesync() server_cf_sync = false end
     local function ServerCFSync() server_cf_sync = true end
 
-    -- OOB exploit (keeps void spam from triggering the out-of-bounds kill)
-    local NamecallDispatcher = { Hooks = {}, Original = nil }
-    function NamecallDispatcher:Register(callback)
-        self.Hooks[#self.Hooks + 1] = callback
-        return #self.Hooks
-    end
-    function NamecallDispatcher:CallOriginal(object, ...)
-        if self.Original then return self.Original(object, ...) end
-        return nil
-    end
-    pcall(function()
-        NamecallDispatcher.Original = hookmetamethod(game, "__namecall", newcclosure(LPH_NO_VIRTUALIZE(function(object, ...)
-            local hooks = NamecallDispatcher.Hooks
-            local count = #hooks
-            if count == 0 then return NamecallDispatcher.Original(object, ...) end
-            local method = getnamecallmethod()
-            for i = 1, count do
-                local result = hooks[i](object, method, ...)
-                if result ~= nil and result ~= false then
-                    if result == true then return nil end
-                    return result
-                end
-            end
-            return NamecallDispatcher.Original(object, ...)
-        end)))
-    end)
-
+    -- OOB exploit (keeps void spam from triggering the out-of-bounds kill).
+    -- Targeted hook on just the OOB remote's FireServer - avoids hooking the
+    -- shared Instance __namecall metatable (which would route every method
+    -- call in the whole game through Lua and can hang weaker executors).
     local oob_remote = nil
     pcall(function()
         local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-        oob_remote = remotes and remotes.Replication.Fighter.OutOfBounds
+        if remotes then
+            local repl = remotes:FindFirstChild("Replication")
+            if repl then
+                local fighter = repl:FindFirstChild("Fighter")
+                if fighter then
+                    oob_remote = fighter:FindFirstChild("OutOfBounds")
+                end
+            end
+        end
     end)
+    local oob_original = nil
     if oob_remote then
-        NamecallDispatcher:Register(LPH_JIT_MAX(function(self, method, ...)
-            if method ~= "FireServer" or self ~= oob_remote then return false end
-            return true
-        end))
+        pcall(function()
+            oob_original = hookfunction(oob_remote.FireServer, LPH_NO_VIRTUALIZE(function(self, ...)
+                return nil
+            end))
+        end)
     end
 
     pcall(function()
