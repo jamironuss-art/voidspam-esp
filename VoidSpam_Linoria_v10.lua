@@ -5528,6 +5528,9 @@ task.spawn(function()
         end
 
         RunService.Heartbeat:Connect(LPH_NO_VIRTUALIZE(function()
+            if not (weapon_state.no_recoil or weapon_state.no_spread or weapon_state.full_auto or weapon_state.firerate ~= 100) then
+                return
+            end
             local fighter = modules.FighterController:GetFighter(player)
             if not fighter then return end
             local equipped_item = fighter.EquippedItem
