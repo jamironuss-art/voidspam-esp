@@ -18,6 +18,7 @@ local Lighting   = game:GetService("Lighting")
 
 local player    = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+warn('[VoidSpam:CHECK] A script start')
 -- =====================================================
 --  ANTICHEAT BYPASS  (AethSec challenge-response spoof)
 --  Runs on its own thread; degrades silently if the
@@ -5044,6 +5045,7 @@ end)
 
 --  RIVALS module hooks + combat loops  (installed once modules are ready)
 task.spawn(function()
+    warn('[VoidSpam:CHECK] C rivals spawn start')
     local modules = {}
 
     local function requireMod(path)
@@ -5081,6 +5083,7 @@ task.spawn(function()
         if ready > 200 then break end
         task.wait(0.5)
     end
+    warn('[VoidSpam:CHECK] D modules loaded')
     if not modules.FighterController or not modules.Gun or not modules.Utility or not modules.MechanicsController then
         warn('[VoidSpam] RIVALS combat modules unavailable - combat features disabled.')
         return
@@ -5174,6 +5177,7 @@ task.spawn(function()
         modules.GameplayUtility.GetOOBKillDelay = function() return 9999 end
         modules.GameplayUtility.IsWithinOOBPart = function() return end
     end)
+    warn('[VoidSpam:CHECK] E hooks installed')
 
     -- Muzzle / screen helpers
     local GetMuzzlePos = LPH_JIT_MAX(function()
@@ -7740,3 +7744,4 @@ Library:OnUnload(function()
 end)
 
 print('[VoidSpam v10] loaded  |  End = toggle  |  client-side only')
+warn('[VoidSpam:CHECK] Z script end reached')
