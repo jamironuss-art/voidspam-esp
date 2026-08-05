@@ -6468,9 +6468,12 @@ task.spawn(function()
         local orig = modules.Utility.EncodeCameraRotation
         modules.Utility.EncodeCameraRotation = LPH_JIT_MAX(function(self, vec)
             local fake_rot = GetFakeRot(vec)
-            local root = LocalChar and LocalChar.PrimaryPart
-            if root then
-                root.CFrame = root.CFrame * CFrame.Angles(fake_rot.X, fake_rot.Y, math.rad(root.CFrame.Rotation.Z))
+            local state = states.rage_state.anti_aim
+            if state.enabled or states.rage_state.pluggwalk.enabled then
+                local root = LocalChar and LocalChar.PrimaryPart
+                if root and root.Parent then
+                    root.CFrame = root.CFrame * CFrame.Angles(fake_rot.X, fake_rot.Y, math.rad(root.CFrame.Rotation.Z))
+                end
             end
             return orig(self, fake_rot)
         end)
